@@ -161,6 +161,7 @@ interface AppState {
   // Task actions
   completeTask: (taskId: string, level: CompletionStatus) => void
   addTask: (task: Omit<Task, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => void
+  updateTask: (taskId: string, updates: Partial<Omit<Task, 'id' | 'user_id' | 'created_at'>>) => void
   deleteTask: (taskId: string) => void
   addAdditionalTask: (title: string, category: GoalCategory, points?: number) => void
   toggleAdditionalTask: (id: string) => void
@@ -770,6 +771,26 @@ export const useAppStore = create<AppState>()(
         }
         set(state => ({ tasks: [...state.tasks, newTask] }))
         syncTaskToSupabase(newTask).catch(() => {})
+      },
+
+      updateTask: (taskId, updates) => {
+        let updatedTask: Task | null = null
+        set(state => ({
+          tasks: state.tasks.map(t => {
+            if (t.id === taskId) {
+              updatedTask = {
+                ...t,
+                ...updates,
+                updated_at: new Date().toISOString(),
+              }
+              return updatedTask
+            }
+            return t
+          }),
+        }))
+        if (updatedTask) {
+          syncTaskToSupabase(updatedTask).catch(() => {})
+        }
       },
 
       deleteTask: (taskId) => {

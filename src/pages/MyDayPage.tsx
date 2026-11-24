@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import {
   Plus, CheckCircle2, Circle, Flame,
-  Trash2, CheckCheck
+  Trash2, CheckCheck, Edit3
 } from 'lucide-react'
 import {
   Card, Button, Badge, Input, Select,
@@ -30,6 +30,7 @@ export function MyDayPage() {
   const todayStr = todayString()
 
   const [showAddTaskModal, setShowAddTaskModal] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showAdditionalForm, setShowAdditionalForm] = useState(false)
 
   const tasks = useAppStore(state => state.tasks)
@@ -152,6 +153,7 @@ export function MyDayPage() {
               task={task}
               status={completionMap[task.id] ?? 'none'}
               onMark={(level) => completeTask(task.id, level)}
+              onEdit={() => setEditingTask(task)}
               onDelete={() => deleteTask(task.id)}
             />
           ))
@@ -243,8 +245,12 @@ export function MyDayPage() {
       </div>
 
       <CreateTaskModal
-        isOpen={showAddTaskModal}
-        onClose={() => setShowAddTaskModal(false)}
+        isOpen={showAddTaskModal || !!editingTask}
+        taskToEdit={editingTask}
+        onClose={() => {
+          setShowAddTaskModal(false)
+          setEditingTask(null)
+        }}
       />
     </div>
   )
@@ -254,11 +260,13 @@ function TaskCardItem({
   task,
   status,
   onMark,
+  onEdit,
   onDelete
 }: {
   task: Task
   status: CompletionStatus
   onMark: (level: CompletionStatus) => void
+  onEdit: () => void
   onDelete: () => void
 }) {
   const color = categoryColor(task.category)
@@ -283,11 +291,19 @@ function TaskCardItem({
               <Flame className="w-3.5 h-3.5 text-[#F59E0B]" aria-label="Counts towards streak" />
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {isNormal && <Badge variant="success">Done ✓</Badge>}
             {isBare && <Badge variant="warning">Bare-min</Badge>}
             <button
+              onClick={onEdit}
+              title="Edit Task"
+              className="p-1 text-[#5A6B5D] hover:text-[#C5F36B] transition-colors"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={onDelete}
+              title="Delete Task"
               className="p-1 text-[#5A6B5D] hover:text-[#F87171] transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />

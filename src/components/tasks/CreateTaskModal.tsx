@@ -1,9 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Flame } from 'lucide-react'
 import { Button, Input, Select, Badge } from '@/components/ui'
 import { useAppStore } from '@/lib/store'
-import type { GoalCategory } from '@/types'
+import type { Task, GoalCategory } from '@/types'
 
 const CATEGORIES: { value: GoalCategory; label: string }[] = [
   { value: 'coding', label: 'Coding & Tech' },
@@ -21,10 +21,12 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 interface CreateTaskModalProps {
   isOpen: boolean
   onClose: () => void
+  taskToEdit?: Task | null
 }
 
-export function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
+export function CreateTaskModal({ isOpen, onClose, taskToEdit }: CreateTaskModalProps) {
   const addTask = useAppStore(state => state.addTask)
+  const updateTask = useAppStore(state => state.updateTask)
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -33,6 +35,26 @@ export function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
   const [minTarget, setMinTarget] = useState('')
   const [recurringDays, setRecurringDays] = useState<number[]>([1, 2, 3, 4, 5])
   const [countsForConsistency, setCountsForConsistency] = useState(true)
+
+  useEffect(() => {
+    if (taskToEdit) {
+      setTitle(taskToEdit.title || '')
+      setDescription(taskToEdit.description || '')
+      setCategory(taskToEdit.category || 'coding')
+      setNormalTarget(taskToEdit.normal_target || '')
+      setMinTarget(taskToEdit.min_target || '')
+      setRecurringDays(taskToEdit.recurring_days || [1, 2, 3, 4, 5])
+      setCountsForConsistency(taskToEdit.counts_for_consistency ?? true)
+    } else {
+      setTitle('')
+      setDescription('')
+      setCategory('coding')
+      setNormalTarget('')
+      setMinTarget('')
+      setRecurringDays([1, 2, 3, 4, 5])
+      setCountsForConsistency(true)
+    }
+  }, [taskToEdit, isOpen])
 
   if (!isOpen) return null
 
@@ -48,21 +70,34 @@ export function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
     e.preventDefault()
     if (!title.trim() || !normalTarget.trim() || !minTarget.trim()) return
 
-    // System points: 20 pts for normal target, 10 pts for bare-minimum anchor
-    addTask({
-      title: title.trim(),
-      description: description.trim() || undefined,
-      category,
-      normal_target: normalTarget.trim(),
-      normal_points: 20,
-      min_target: minTarget.trim(),
-      min_points: 10,
-      is_recurring: recurringDays.length > 0,
-      recurring_days: recurringDays,
-      counts_for_consistency: countsForConsistency,
-      is_active: true,
-      sort_order: 1,
-    })
+    if (taskToEdit) {
+      updateTask(taskToEdit.id, {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        category,
+        normal_target: normalTarget.trim(),
+        min_target: minTarget.trim(),
+        is_recurring: recurringDays.length > 0,
+        recurring_days: recurringDays,
+        counts_for_consistency: countsForConsistency,
+      })
+    } else {
+      // System points: 20 pts for normal target, 10 pts for bare-minimum anchor
+      addTask({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        category,
+        normal_target: normalTarget.trim(),
+        normal_points: 20,
+        min_target: minTarget.trim(),
+        min_points: 10,
+        is_recurring: recurringDays.length > 0,
+        recurring_days: recurringDays,
+        counts_for_consistency: countsForConsistency,
+        is_active: true,
+        sort_order: 1,
+      })
+    }
 
     onClose()
   }
@@ -86,8 +121,14 @@ export function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
         >
           <div className="flex items-center justify-between pb-4 border-b border-[#262C28] mb-5">
             <div>
-              <h2 className="text-lg font-bold text-[#F5F5F0]">Create Daily Task</h2>
-              <p className="text-xs text-[#5A6B5D] mt-0.5">Define your daily target and bare-minimum anchor</p>
+              <h2 className="text-lg font-bold text-[#F5F5F0]">
+                {taskToEdit ? 'Edit Daily Task' : 'Create Daily Task'}
+              </h2>
+              <p className="text-xs text-[#5A6B5D] mt-0.5">
+                {taskToEdit
+                  ? 'Update your targets, schedule, and consistency settings'
+                  : 'Define your daily target and bare-minimum anchor'}
+              </p>
             </div>
             <button
               onClick={onClose}
@@ -211,7 +252,7 @@ export function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
             {/* Actions */}
             <div className="flex gap-2 pt-2">
               <Button type="submit" size="md" className="flex-1">
-                Save & Schedule Task
+                {taskToEdit ? 'Save Changes' : 'Save & Schedule Task'}
               </Button>
               <Button type="button" variant="ghost" size="md" onClick={onClose}>
                 Cancel
