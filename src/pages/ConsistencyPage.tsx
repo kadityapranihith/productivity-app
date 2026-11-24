@@ -2,8 +2,8 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
 import {
-  Flame, TrendingUp, Calendar, Target, Trophy,
-  Lock, CheckCircle2, Award, Sparkles
+  Flame, TrendingUp, Calendar, Trophy,
+  Lock, CheckCircle2, Sparkles
 } from 'lucide-react'
 import { Card, StatCard, SectionHeader, Badge } from '@/components/ui'
 import { ConsistencyHeatmap } from '@/components/heatmap/ConsistencyHeatmap'
@@ -19,6 +19,7 @@ const MONTH_NAMES = [
 
 export function ConsistencyPage() {
   const year = new Date().getFullYear()
+  const currentMonthIdx = new Date().getMonth()
 
   // Store bindings
   const stats = useAppStore(state => state.stats)
@@ -31,16 +32,10 @@ export function ConsistencyPage() {
   const allTimeDays = stats.all_time_active_days ?? heatmapData.filter(d => d.qualifies_for_consistency).length
 
   const nextMilestone = YEAR_MILESTONES.find(m => m > activeDaysThisYear) ?? 300
-  const filteredMilestones = YEAR_MILESTONES.filter(m => m <= activeDaysThisYear)
-  const prevMilestone = filteredMilestones.length > 0 ? filteredMilestones[filteredMilestones.length - 1] : 0
-  const milestoneProgress = prevMilestone === nextMilestone
-    ? 100
-    : Math.round(((activeDaysThisYear - prevMilestone) / (nextMilestone - prevMilestone)) * 100)
-
   const monthlyStats = getMonthlyStats(heatmapData)
   const earnedIds = new Set(userAchievements.map(ua => ua.achievement_id))
 
-  // Categorize official badges
+  // Categorize official 21 badges
   const allTimeAchs = achievements.filter(a => a.type === 'all_time_worked')
   const yearActiveDayAchs = achievements.filter(a =>
     a.type === 'active_days_50' ||
@@ -106,61 +101,7 @@ export function ConsistencyPage() {
         />
       </div>
 
-      {/* 2. Active Day Milestones Progress Bar ({year}) */}
-      <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
-        <div className="flex items-center justify-between mb-5">
-          <SectionHeader
-            title={`${year} Active-Day Progress`}
-            subtitle="Qualify by meeting normal target or bare-minimum standard on any day."
-          />
-        </div>
-        <div className="flex items-center gap-0 relative pt-2 pb-1">
-          <div className="absolute top-6 left-0 right-0 h-1 bg-[#262C28] rounded-full" />
-          <div
-            className="absolute top-6 left-0 h-1 bg-[#C5F36B] rounded-full transition-all duration-700"
-            style={{ width: `${Math.min(100, (activeDaysThisYear / 300) * 100)}%` }}
-          />
-          {YEAR_MILESTONES.map((m) => {
-            const achieved = activeDaysThisYear >= m
-            const ach = yearActiveDayAchs.find(a => a.threshold === m)
-            const userAch = userAchievements.find(ua => ua.achievement_id === ach?.id)
-            return (
-              <button
-                key={m}
-                onClick={() => ach && setInspectingBadge(ach)}
-                className="flex-1 flex flex-col items-center relative z-10 transition-transform hover:scale-105"
-              >
-                <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center text-sm font-bold mb-2 shadow-md ${
-                  achieved
-                    ? 'bg-[#C5F36B] border-[#C5F36B] text-[#101211]'
-                    : 'bg-[#1E2220] border-[#2E3530] text-[#5A6B5D]'
-                }`}>
-                  {achieved ? '✓' : ach?.icon}
-                </div>
-                <span className="text-xs font-bold text-[#F5F5F0]">{m}</span>
-                <span className="text-[10px] text-[#5A6B5D]">days ({year})</span>
-                {userAch && (
-                  <span className="text-[9px] text-[#C5F36B] font-semibold mt-0.5">
-                    {format(new Date(userAch.earned_at), 'MMM d')}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="mt-4 pt-3 border-t border-[#262C28] flex items-center justify-between text-xs text-[#5A6B5D]">
-          <span>
-            {nextMilestone > activeDaysThisYear
-              ? `${nextMilestone - activeDaysThisYear} more days to ${nextMilestone}-day milestone`
-              : `300-day milestone reached for ${year}!`
-            }
-          </span>
-          <span className="text-[#C5F36B] font-medium">Both normal & bare-minimum qualify</span>
-        </div>
-      </Card>
-
-      {/* 3. Full Contribution Heatmap with 3 States */}
+      {/* 2. Full Contribution Heatmap with 3 States */}
       <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
           <SectionHeader
@@ -188,51 +129,7 @@ export function ConsistencyPage() {
         <ConsistencyHeatmap data={heatmapData} />
       </Card>
 
-      {/* 4. Monthly Consistency Eligibility Overview */}
-      <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
-        <SectionHeader
-          title="Monthly Consistency Overview"
-          subtitle="Showing active days completed vs total days in each month of the year."
-          className="mb-4"
-        />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-          {monthlyStats.map(({ month, name, activeDays: mActive, total }) => {
-            const pct = total > 0 ? Math.round((mActive / total) * 100) : 0
-            const monthAch = userAchievements.find(ua => {
-              const a = achievements.find(x => x.id === ua.achievement_id)
-              return a?.type === 'monthly_consistency' && a.month === month + 1
-            })
-
-            return (
-              <div
-                key={month}
-                className="flex flex-col items-center gap-1 p-3.5 bg-[#181B19] border border-[#262C28] rounded-xl"
-              >
-                <span className="text-xs text-[#5A6B5D] font-bold uppercase">{name}</span>
-                <span className="text-xl font-bold text-[#F5F5F0] mt-0.5">{mActive}</span>
-                <span className="text-[10px] text-[#5A6B5D]">/ {total} days</span>
-
-                {monthAch ? (
-                  <Badge variant="accent" className="mt-1 text-[9px]">Badge Earned ✓</Badge>
-                ) : (
-                  <div className="w-full h-1 bg-[#262C28] rounded-full mt-2 overflow-hidden">
-                    <div
-                      className="h-full bg-[#C5F36B] rounded-full transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </Card>
-
-      {/* ============================================================ */}
-      {/* BADGES SHOWCASE (ALL IN ONE PAGE) */}
-      {/* ============================================================ */}
-
-      {/* 5. All-Time Worked Badges (365d, 500d, 1000d, 2000d) */}
+      {/* 3. All-Time Milestone Badges (Cumulative 365d, 500d, 1000d, 2000d) */}
       <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
         <SectionHeader
           title="All-Time Milestone Badges"
@@ -264,13 +161,41 @@ export function ConsistencyPage() {
         </div>
       </Card>
 
-      {/* 6. Calendar-Year Active-Day Badges ({year}) */}
+      {/* 4. Unified Calendar-Year Active-Day Milestones ({year}) */}
+      {/* Combines the milestone track bar and the 4 badge cards into one single section */}
       <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
         <SectionHeader
-          title={`Calendar Year Badges (${year})`}
-          subtitle={`Milestones for showing up 50, 100, 200, and 300 days in the year ${year}.`}
+          title={`${year} Active-Day Milestones`}
+          subtitle={`Milestones for showing up 50, 100, 200, and 300 days in ${year}. Both normal target and bare-minimum qualify.`}
           className="mb-5"
         />
+
+        {/* Milestone Progress Bar Track */}
+        <div className="relative pt-2 pb-3 mb-6 bg-[#181B19] p-4 rounded-xl border border-[#262C28]">
+          <div className="flex items-center justify-between text-xs text-[#8B9A8E] mb-2 font-medium">
+            <span>Overall Progress</span>
+            <span className="text-[#C5F36B] font-semibold">
+              {activeDaysThisYear} / 300 Days ({Math.min(100, Math.round((activeDaysThisYear / 300) * 100))}%)
+            </span>
+          </div>
+          <div className="w-full h-2 bg-[#252A27] rounded-full overflow-hidden relative">
+            <div
+              className="h-full bg-gradient-to-r from-[#4ADE80] to-[#C5F36B] rounded-full transition-all duration-700"
+              style={{ width: `${Math.min(100, (activeDaysThisYear / 300) * 100)}%` }}
+            />
+          </div>
+          <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#5A6B5D]">
+            <span>
+              {nextMilestone > activeDaysThisYear
+                ? `${nextMilestone - activeDaysThisYear} more days to ${nextMilestone}-day milestone`
+                : `All 300-day milestones completed for ${year}! 🎉`
+              }
+            </span>
+            <span className="text-[#C5F36B]">Tap any milestone to inspect</span>
+          </div>
+        </div>
+
+        {/* 4 Active-Day Milestone Badge Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {yearActiveDayAchs.map((ach) => {
             const earned = earnedIds.has(ach.id)
@@ -296,41 +221,86 @@ export function ConsistencyPage() {
         </div>
       </Card>
 
-      {/* 7. Monthly Consistency Badges (12 Months) */}
+      {/* 5. Unified Monthly Consistency Badges & Overview ({year}) */}
+      {/* Combines monthly active day stats and monthly consistency badges into one single 12-month section */}
       <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
         <SectionHeader
           title={`Monthly Consistency Badges (${year})`}
-          subtitle="Awarded for maintaining consistency streaks across each complete month."
+          subtitle={`Track your daily consistency for each month in ${year}. Awarded for maintaining consistency streaks across all days.`}
           className="mb-5"
         />
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {MONTH_NAMES.map((monthName, idx) => {
             const ach = monthlyAchs.find(a => a.month === idx + 1)
-            if (!ach) return null
-            const earned = earnedIds.has(ach.id)
-            const ua = userAchievements.find(x => x.achievement_id === ach.id)
-            const isPast = new Date().getMonth() >= idx
+            const monthStat = monthlyStats[idx]
+            const activeDays = monthStat?.activeDays ?? 0
+            const total = monthStat?.total ?? 30
+            const pct = total > 0 ? Math.round((activeDays / total) * 100) : 0
+            const earned = ach ? earnedIds.has(ach.id) : false
+            const ua = ach ? userAchievements.find(x => x.achievement_id === ach.id) : undefined
+            const isCurrentOrPast = currentMonthIdx >= idx
 
             return (
               <button
-                key={ach.id}
-                onClick={() => setInspectingBadge(ach)}
+                key={idx}
+                onClick={() => ach && setInspectingBadge(ach)}
+                disabled={!ach}
                 className="text-left transition-transform active:scale-95"
               >
-                <MonthlyBadge
-                  achievement={ach}
-                  monthName={monthName}
-                  earned={earned}
-                  earnedAt={ua?.earned_at}
-                  isPast={isPast}
-                />
+                <div className={`flex flex-col items-center gap-2 p-3.5 rounded-xl border transition-all ${
+                  earned
+                    ? 'bg-[rgba(197,243,107,0.06)] border-[rgba(197,243,107,0.3)] shadow-[0_0_12px_rgba(197,243,107,0.08)]'
+                    : isCurrentOrPast
+                      ? 'bg-[#181B19] border-[#262C28] hover:border-[#2E3530]'
+                      : 'bg-[#181B19] border-[#262C28] opacity-50'
+                }`}>
+                  <div className="w-full flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#8B9A8E] uppercase tracking-wider">
+                      {monthName.slice(0, 3)}
+                    </span>
+                    {earned ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#4ADE80]" />
+                    ) : isCurrentOrPast ? (
+                      <span className="text-[10px] text-[#5A6B5D]">{pct}%</span>
+                    ) : (
+                      <Lock className="w-3 h-3 text-[#3D4A40]" />
+                    )}
+                  </div>
+
+                  <span className={`text-2xl transition-transform ${earned ? 'scale-110' : isCurrentOrPast ? 'opacity-70' : 'grayscale opacity-30'}`}>
+                    {ach?.icon ?? '⭐'}
+                  </span>
+
+                  <div className="text-center w-full">
+                    <div className="text-base font-bold text-[#F5F5F0]">
+                      {activeDays}
+                      <span className="text-[10px] text-[#5A6B5D] font-normal ml-0.5">/ {total}d</span>
+                    </div>
+
+                    {earned ? (
+                      <Badge variant="accent" className="mt-1 text-[9px] w-full justify-center py-0.5">
+                        Earned ✓
+                      </Badge>
+                    ) : isCurrentOrPast ? (
+                      <div className="w-full h-1 bg-[#252A27] rounded-full mt-2 overflow-hidden">
+                        <div
+                          className="h-full bg-[#4ADE80] rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-[9px] text-[#5A6B5D] block mt-1">Upcoming</span>
+                    )}
+                  </div>
+                </div>
               </button>
             )
           })}
         </div>
       </Card>
 
-      {/* 8. Complete Year GOAT Badge */}
+      {/* 6. Complete Year GOAT Badge */}
       {goatAch && (
         <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
           <SectionHeader
@@ -401,39 +371,6 @@ function AchievementCard({
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function MonthlyBadge({
-  achievement,
-  monthName,
-  earned,
-  isPast
-}: {
-  achievement: Achievement
-  monthName: string
-  earned: boolean
-  earnedAt?: string
-  isPast: boolean
-}) {
-  return (
-    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
-      earned
-        ? 'bg-[rgba(197,243,107,0.05)] border-[rgba(197,243,107,0.25)] shadow-[0_0_10px_rgba(197,243,107,0.05)]'
-        : isPast
-          ? 'bg-[#181B19] border-[#262C28] opacity-70'
-          : 'bg-[#181B19] border-[#262C28] opacity-40'
-    }`}>
-      <span className={`text-2xl ${earned ? '' : 'grayscale opacity-40'}`}>{achievement.icon}</span>
-      <span className="text-[10px] font-semibold text-[#8B9A8E]">{monthName.slice(0, 3)}</span>
-      {earned ? (
-        <CheckCircle2 className="w-3.5 h-3.5 text-[#4ADE80]" />
-      ) : isPast ? (
-        <div className="w-3.5 h-3.5 rounded-full border border-[#2E3530]" />
-      ) : (
-        <Lock className="w-3 h-3 text-[#3D4A40]" />
-      )}
     </div>
   )
 }

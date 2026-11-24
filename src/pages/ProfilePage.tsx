@@ -8,6 +8,7 @@ import { EditProfileModal } from '@/components/profile/EditProfileModal'
 import { useAppStore } from '@/lib/store'
 
 export function ProfilePage() {
+  const currentYear = new Date().getFullYear()
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [exportNotice, setExportNotice] = useState<string | null>(null)
 
@@ -108,7 +109,7 @@ export function ProfilePage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Current Streak" value={`${stats.current_streak}d`} accent />
         <StatCard label="Longest Streak" value={`${stats.longest_streak}d`} sub="all time" />
-        <StatCard label="Active Days" value={stats.active_days_this_year} sub="in 2026" />
+        <StatCard label="Active Days" value={stats.active_days_this_year} sub={`in ${currentYear}`} />
         <StatCard label="Total Points" value={stats.total_points.toLocaleString()} sub="lifetime" />
       </div>
 
@@ -116,7 +117,7 @@ export function ProfilePage() {
       <Card className="p-5 md:p-6 bg-[#1E2220] border-[#262C28]">
         <SectionHeader
           title="Consistency Matrix"
-          subtitle="Your 2026 showing-up map"
+          subtitle={`Your ${currentYear} showing-up map`}
           className="mb-4"
         />
         <ConsistencyHeatmap data={heatmapData} compact />
