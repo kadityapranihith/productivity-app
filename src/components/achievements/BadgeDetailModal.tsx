@@ -9,21 +9,26 @@ export function BadgeDetailModal() {
   const inspectingBadge = useAppStore(state => state.inspectingBadge)
   const setInspectingBadge = useAppStore(state => state.setInspectingBadge)
   const userAchievements = useAppStore(state => state.userAchievements)
-  const activeDaysThisYear = useAppStore(state => state.stats.active_days_this_year)
+  const stats = useAppStore(state => state.stats)
+  const heatmapData = useAppStore(state => state.heatmapData)
 
   if (!inspectingBadge) return null
+
+  const activeDaysThisYear = stats.active_days_this_year
+  const allTimeDays = stats.all_time_active_days ?? heatmapData.filter(d => d.qualifies_for_consistency).length
 
   const userAch = userAchievements.find(ua => ua.achievement_id === inspectingBadge.id)
   const isEarned = Boolean(userAch)
 
+  const relevantDays = inspectingBadge.type === 'all_time_worked' ? allTimeDays : activeDaysThisYear
   let progress = 0
   if (inspectingBadge.threshold) {
-    progress = Math.min(100, Math.round((activeDaysThisYear / inspectingBadge.threshold) * 100))
+    progress = Math.min(100, Math.round((relevantDays / inspectingBadge.threshold) * 100))
   } else if (isEarned) {
     progress = 100
   }
 
-  const isFullYear = inspectingBadge.type === 'full_year_consistency'
+  const isFullYear = inspectingBadge.type === 'complete_year_goat' || inspectingBadge.type === 'full_year_consistency'
 
   return (
     <AnimatePresence>
@@ -119,7 +124,7 @@ export function BadgeDetailModal() {
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-[#5A6B5D]">Current Progress</span>
                   <span className="text-[#F5F5F0] font-semibold">
-                    {activeDaysThisYear} / {inspectingBadge.threshold} days ({progress}%)
+                    {relevantDays} / {inspectingBadge.threshold} days ({progress}%)
                   </span>
                 </div>
                 <div className="w-full h-1.5 bg-[#252A27] rounded-full overflow-hidden">

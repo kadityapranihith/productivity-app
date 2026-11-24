@@ -291,18 +291,27 @@ export const useAppStore = create<AppState>()(
         let displayName: string | undefined
         let photoUrl: string | undefined
 
-        try {
-          const { firebaseAuth } = await import('./firebase')
-          if (firebaseAuth) {
-            const { signInWithEmailAndPassword } = await import('firebase/auth')
+        const { firebaseAuth } = await import('./firebase')
+        if (firebaseAuth) {
+          const { signInWithEmailAndPassword } = await import('firebase/auth')
+          try {
             const cred = await signInWithEmailAndPassword(firebaseAuth, cleanEmail, pass)
             if (cred.user) {
               displayName = cred.user.displayName || undefined
               photoUrl = cred.user.photoURL || undefined
             }
+          } catch (err: any) {
+            const code = err?.code
+            if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+              throw new Error('Account not found or invalid credentials. Please switch to "Create Account" if you are new.')
+            } else if (code === 'auth/wrong-password') {
+              throw new Error('Incorrect password. Please verify your password.')
+            } else if (code === 'auth/too-many-requests') {
+              throw new Error('Too many failed attempts. Please try again later or reset your password.')
+            } else {
+              throw new Error(err?.message || 'Authentication failed. Please verify your credentials.')
+            }
           }
-        } catch (e) {
-          console.warn('[Auth] Operating with local auth state:', e)
         }
 
         const canonicalUserId = emailToUuid(cleanEmail)
@@ -322,18 +331,25 @@ export const useAppStore = create<AppState>()(
         const cleanName = name.trim() || cleanEmail.split('@')[0]
         let photoUrl: string | undefined
 
-        try {
-          const { firebaseAuth } = await import('./firebase')
-          if (firebaseAuth) {
-            const { createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth')
+        const { firebaseAuth } = await import('./firebase')
+        if (firebaseAuth) {
+          const { createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth')
+          try {
             const cred = await createUserWithEmailAndPassword(firebaseAuth, cleanEmail, pass)
             if (cred.user) {
               await updateProfile(cred.user, { displayName: cleanName })
               photoUrl = cred.user.photoURL || undefined
             }
+          } catch (err: any) {
+            const code = err?.code
+            if (code === 'auth/email-already-in-use') {
+              throw new Error('An account with this email already exists. Please switch to "Sign In".')
+            } else if (code === 'auth/weak-password') {
+              throw new Error('Password should be at least 6 characters.')
+            } else {
+              throw new Error(err?.message || 'Failed to create account. Please try again.')
+            }
           }
-        } catch (e) {
-          console.warn('[Auth] Operating with local auth state:', e)
         }
 
         const canonicalUserId = emailToUuid(cleanEmail)
@@ -599,76 +615,115 @@ export const useAppStore = create<AppState>()(
             : entry
         )
 
-        // Check milestone / badge unlocking
+        // Check milestone / badge unlocking (Strictly the 21 official badges)
         const userCanonicalId = state.user.id || emailToUuid(state.user.email)
         const earnedIds = new Set(state.userAchievements.map(ua => ua.achievement_id))
         const newEarned: UserAchievement[] = []
         const announcementsToBroadcast: Announcement[] = []
+        const newNotifications: Notification[] = []
         const displayName = state.user.display_name || state.user.email.split('@')[0]
+        const currentYear = new Date().getFullYear()
 
-        // Active days badges: 50, 100, 200, 300
-        const activeMilestones = [
-          { id: 'ach-50', name: '50 Active Days', threshold: 50, icon: '🌱' },
-          { id: 'ach-100', name: '100 Active Days', threshold: 100, icon: '🌿' },
-          { id: 'ach-200', name: '200 Active Days', threshold: 200, icon: '🌳' },
-          { id: 'ach-300', name: '300 Active Days', threshold: 300, icon: '🏔️' },
-        ]
+        const allTimeDaysCount = newHeatmap.filter(d => d.qualifies_for_consistency).length
 
-        for (const m of activeMilestones) {
-          if (activeDaysCount >= m.threshold && !earnedIds.has(m.id)) {
-            const newUa: UserAchievement = {
+        // Helper to register an unlocked badge
+        const awardBadge = (id: string, name: string, icon: string, year?: number, month?: number) => {
+          if (earnedIds.has(id)) return
+          earnedIds.add(id)
+          const newUa: UserAchievement = {
+            id: generateUuid(),
+            user_id: userCanonicalId,
+            achievement_id: id,
+            earned_at: new Date().toISOString(),
+            year,
+            month,
+          }
+          newEarned.push(newUa)
+          syncUserAchievementToSupabase(newUa).catch(() => {})
+
+          // Broadcast announcement to all circles the user is in
+          state.groups.forEach(g => {
+            const ann: Announcement = {
               id: generateUuid(),
+              group_id: g.id,
               user_id: userCanonicalId,
-              achievement_id: m.id,
-              earned_at: new Date().toISOString(),
-              year: new Date().getFullYear(),
+              content: `🎉 ${displayName} unlocked the "${name}" badge ${icon}!`,
+              type: 'achievement',
+              created_at: new Date().toISOString(),
+              user: {
+                display_name: displayName,
+                avatar_url: state.user.avatar_url,
+              },
             }
-            newEarned.push(newUa)
-            earnedIds.add(m.id)
-            syncUserAchievementToSupabase(newUa).catch(() => {})
+            announcementsToBroadcast.push(ann)
+            syncAnnouncementToSupabase(ann).catch(() => {})
+          })
 
-            // Broadcast to all user's circles
-            state.groups.forEach(g => {
-              const ann: Announcement = {
-                id: generateUuid(),
-                group_id: g.id,
-                user_id: userCanonicalId,
-                content: `🎉 ${displayName} unlocked the "${m.name}" milestone badge ${m.icon}!`,
-                type: 'achievement',
-                created_at: new Date().toISOString(),
-                user: {
-                  display_name: displayName,
-                  avatar_url: state.user.avatar_url,
-                },
-              }
-              announcementsToBroadcast.push(ann)
-              syncAnnouncementToSupabase(ann).catch(() => {})
-            })
+          // Add to personal notifications
+          newNotifications.push({
+            id: generateUuid(),
+            user_id: userCanonicalId,
+            type: 'achievement_unlocked',
+            title: `Badge Unlocked: ${name} ${icon}`,
+            body: `Congratulations! You unlocked the ${name} badge for verified showing up.`,
+            read: false,
+            created_at: new Date().toISOString(),
+          })
+        }
+
+        // 1. All-time worked badges (365d, 500d, 1000d, 2000d)
+        const allTimeMilestones = [
+          { id: 'ach-alltime-365', name: '365 Days Worked', threshold: 365, icon: '🏅' },
+          { id: 'ach-alltime-500', name: '500 Days Worked', threshold: 500, icon: '💎' },
+          { id: 'ach-alltime-1000', name: '1,000 Days Worked', threshold: 1000, icon: '⚡' },
+          { id: 'ach-alltime-2000', name: '2,000 Days Worked', threshold: 2000, icon: '🌌' },
+        ]
+        for (const m of allTimeMilestones) {
+          if (allTimeDaysCount >= m.threshold) {
+            awardBadge(m.id, m.name, m.icon)
           }
         }
 
-        // Streak milestones: 7, 14, 30, 60, 100, 365 days
-        const streakMilestones = [7, 14, 30, 60, 100, 365]
-        const prevStreak = state.stats.current_streak
-        for (const sm of streakMilestones) {
-          if (newStreak >= sm && prevStreak < sm) {
-            state.groups.forEach(g => {
-              const ann: Announcement = {
-                id: generateUuid(),
-                group_id: g.id,
-                user_id: userCanonicalId,
-                content: `🔥 ${displayName} hit an incredible ${sm}-day consistency streak!`,
-                type: 'milestone',
-                created_at: new Date().toISOString(),
-                user: {
-                  display_name: displayName,
-                  avatar_url: state.user.avatar_url,
-                },
-              }
-              announcementsToBroadcast.push(ann)
-              syncAnnouncementToSupabase(ann).catch(() => {})
-            })
+        // 2. Calendar year active day badges (50d, 100d, 200d, 300d in current year)
+        const yearMilestones = [
+          { id: 'ach-50', name: `50 Days Badge ${currentYear}`, threshold: 50, icon: '🌱' },
+          { id: 'ach-100', name: `100 Days Badge ${currentYear}`, threshold: 100, icon: '🌿' },
+          { id: 'ach-200', name: `200 Days Badge ${currentYear}`, threshold: 200, icon: '🌳' },
+          { id: 'ach-300', name: `300 Days Badge ${currentYear}`, threshold: 300, icon: '🏔️' },
+        ]
+        for (const m of yearMilestones) {
+          if (activeDaysCount >= m.threshold) {
+            awardBadge(m.id, m.name, m.icon, currentYear)
           }
+        }
+
+        // 3. Monthly consistency badges (Jan through Dec)
+        const MONTH_CONFIG = [
+          { id: 'ach-jan', name: 'January Consistency', month: 1, icon: '❄️' },
+          { id: 'ach-feb', name: 'February Consistency', month: 2, icon: '💝' },
+          { id: 'ach-mar', name: 'March Consistency', month: 3, icon: '🌸' },
+          { id: 'ach-apr', name: 'April Consistency', month: 4, icon: '🌺' },
+          { id: 'ach-may', name: 'May Consistency', month: 5, icon: '🌻' },
+          { id: 'ach-jun', name: 'June Consistency', month: 6, icon: '☀️' },
+          { id: 'ach-jul', name: 'July Consistency', month: 7, icon: '🌊' },
+          { id: 'ach-aug', name: 'August Consistency', month: 8, icon: '🌙' },
+          { id: 'ach-sep', name: 'September Consistency', month: 9, icon: '🍂' },
+          { id: 'ach-oct', name: 'October Consistency', month: 10, icon: '🍁' },
+          { id: 'ach-nov', name: 'November Consistency', month: 11, icon: '🌨️' },
+          { id: 'ach-dec', name: 'December Consistency', month: 12, icon: '⭐' },
+        ]
+        for (const mc of MONTH_CONFIG) {
+          const daysInMonth = new Date(currentYear, mc.month, 0).getDate()
+          const monthPrefix = `${currentYear}-${String(mc.month).padStart(2, '0')}`
+          const activeInMonth = newHeatmap.filter(d => d.date.startsWith(monthPrefix) && d.qualifies_for_consistency).length
+          if (activeInMonth >= daysInMonth) {
+            awardBadge(mc.id, mc.name, mc.icon, currentYear, mc.month)
+          }
+        }
+
+        // 4. Complete Year GOAT Badge
+        if (activeDaysCount >= 365 || MONTH_CONFIG.every(m => earnedIds.has(m.id))) {
+          awardBadge('ach-year-goat', `${currentYear} Complete Year GOAT Badge`, '🐐', currentYear)
         }
 
         const updatedAchievements = newEarned.length > 0
@@ -677,12 +732,16 @@ export const useAppStore = create<AppState>()(
         const updatedAnnouncements = announcementsToBroadcast.length > 0
           ? [...announcementsToBroadcast, ...state.announcements]
           : state.announcements
+        const updatedNotifications = newNotifications.length > 0
+          ? [...newNotifications, ...state.notifications]
+          : state.notifications
 
         const newStats = {
           ...state.stats,
           total_points: newTotalPoints,
           points_today: newPointsToday,
           active_days_this_year: activeDaysCount,
+          all_time_active_days: allTimeDaysCount,
           current_streak: newStreak,
         }
 
@@ -692,6 +751,7 @@ export const useAppStore = create<AppState>()(
           leaderboard: updatedLeaderboard,
           userAchievements: updatedAchievements,
           announcements: updatedAnnouncements,
+          notifications: updatedNotifications,
           stats: newStats,
         })
 
@@ -889,33 +949,15 @@ export const useAppStore = create<AppState>()(
           active_days: stats.active_days_this_year,
         }
 
-        const announcement: Announcement = {
-          id: generateUuid(),
-          group_id: newGroupId,
-          user_id: userCanonicalId,
-          content: `${user.display_name || 'Circle founder'} created the circle "${name}"!`,
-          type: 'milestone',
-          created_at: new Date().toISOString(),
-          user: {
-            display_name: user.display_name || 'Circle founder',
-            avatar_url: user.avatar_url,
-          },
-        }
-
         set(state => ({
           groups: [...state.groups, newGroup],
           activeGroupId: newGroup.id,
           leaderboard: [creatorEntry],
-          announcements: [announcement, ...state.announcements],
-          hasUnreadCircleActivity: true,
         }))
 
         // Sync directly to Supabase in background
         syncGroupToSupabase(newGroup).catch(err => {
           console.warn('[Store] syncGroupToSupabase error:', err)
-        })
-        syncAnnouncementToSupabase(announcement).catch(err => {
-          console.warn('[Store] syncAnnouncementToSupabase error:', err)
         })
         upsertUserProfileToSupabase(user, get().profile).catch(() => {})
       },

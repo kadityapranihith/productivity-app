@@ -34,7 +34,7 @@ export function AchievementsPage() {
   const monthlyAchs = achievements
     .filter(a => a.type === 'monthly_consistency')
     .sort((a, b) => (a.month ?? 0) - (b.month ?? 0))
-  const yearlyAch = achievements.find(a => a.type === 'full_year_consistency')
+  const yearlyAch = achievements.find(a => a.type === 'complete_year_goat' || a.type === 'full_year_consistency')
 
   return (
     <div className="min-h-screen p-6 md:p-8 pb-24 md:pb-8 max-w-4xl mx-auto">

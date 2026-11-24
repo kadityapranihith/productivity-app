@@ -34,7 +34,7 @@ export default function App() {
         <Route path="my-day" element={<MyDayPage />} />
         <Route path="goals" element={<GoalsPage />} />
         <Route path="consistency" element={<ConsistencyPage />} />
-        <Route path="achievements" element={<Navigate to="/consistency?tab=badges" replace />} />
+        <Route path="achievements" element={<Navigate to="/consistency" replace />} />
         <Route path="journal" element={<JournalPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="profile" element={<ProfilePage />} />
