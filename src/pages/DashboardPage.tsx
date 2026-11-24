@@ -48,7 +48,8 @@ export function DashboardPage() {
     )
   )
 
-  const todayCompletions = completions.filter(c => c.date === todayStr)
+  const activeTodayIds = new Set(scheduledTasks.map(t => t.id))
+  const todayCompletions = completions.filter(c => c.date === todayStr && activeTodayIds.has(c.task_id))
   const normalCompleted = todayCompletions.filter(c => c.status === 'normal').length
   const bareCompleted = todayCompletions.filter(c => c.status === 'bare_minimum').length
   const totalCompleted = normalCompleted + bareCompleted

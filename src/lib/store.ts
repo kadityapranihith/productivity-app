@@ -775,7 +775,8 @@ export const useAppStore = create<AppState>()(
       deleteTask: (taskId) => {
         set(state => ({
           tasks: state.tasks.filter(t => t.id !== taskId),
-          completions: state.completions.filter(c => c.task_id !== taskId),
+          // Historical completions are intentionally preserved so past showing-up records,
+          // 30-day consistency proof, streaks, heatmaps, and points are never erased.
         }))
         deleteTaskFromSupabase(taskId).catch(() => {})
       },

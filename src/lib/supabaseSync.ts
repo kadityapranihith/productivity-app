@@ -60,7 +60,13 @@ export async function syncTaskToSupabase(task: Task): Promise<boolean> {
 export async function deleteTaskFromSupabase(taskId: string): Promise<boolean> {
   try {
     if (!taskId) return false
-    const { error } = await supabase.from('tasks').delete().eq('id', taskId)
+    // Soft-delete task by setting is_active = false
+    // This removes the task from future days while preserving all historical completions,
+    // streaks, points, and heatmap consistency data intact in the database.
+    const { error } = await supabase
+      .from('tasks')
+      .update({ is_active: false })
+      .eq('id', taskId)
     if (error) {
       console.warn('[Sync] deleteTaskFromSupabase error:', error.message)
       return false

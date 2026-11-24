@@ -50,7 +50,8 @@ export function MyDayPage() {
     )
   )
 
-  const todayCompletions = completions.filter(c => c.date === todayStr)
+  const activeTodayIds = new Set(todayTasks.map(t => t.id))
+  const todayCompletions = completions.filter(c => c.date === todayStr && activeTodayIds.has(c.task_id))
   const completionMap = Object.fromEntries(todayCompletions.map(c => [c.task_id, c.status as CompletionStatus]))
 
   const totalTasks = todayTasks.length
