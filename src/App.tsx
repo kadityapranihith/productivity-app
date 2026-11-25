@@ -5,12 +5,10 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { MyDayPage } from '@/pages/MyDayPage'
 import { GoalsPage } from '@/pages/GoalsPage'
 import { ConsistencyPage } from '@/pages/ConsistencyPage'
-import { AchievementsPage } from '@/pages/AchievementsPage'
 import { JournalPage } from '@/pages/JournalPage'
 import { GroupsPage } from '@/pages/GroupsPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
-import { SettingsPage } from '@/pages/SettingsPage'
 import { AuthPage } from '@/pages/AuthPage'
 import { useAppStore } from '@/lib/store'
 
@@ -39,7 +37,7 @@ export default function App() {
         <Route path="groups" element={<GroupsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<Navigate to="/profile" replace />} />
       </Route>
       <Route path="*" element={<Navigate to={isAuthenticated ? "/overview" : "/auth"} replace />} />
     </Routes>

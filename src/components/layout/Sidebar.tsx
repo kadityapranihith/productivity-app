@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Sun, Target, Flame,
-  BookOpen, Users, Bell, User, Settings,
+  BookOpen, Users, Bell, User,
   LogOut
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -22,7 +22,6 @@ const mainNav = [
 const secondaryNav = [
   { to: '/notifications', icon: Bell, label: 'Notifications' },
   { to: '/profile', icon: User, label: 'Profile' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 export function Sidebar() {
