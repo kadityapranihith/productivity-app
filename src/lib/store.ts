@@ -584,9 +584,14 @@ export const useAppStore = create<AppState>()(
         const newPointsToday = Math.max(0, state.stats.points_today + pointDelta)
 
         // Update heatmap entry for today
-        const hasNormal = newCompletions.some(c => c.date === todayStr && c.status === 'normal')
-        const hasBare = newCompletions.some(c => c.date === todayStr && c.status === 'bare_minimum')
-        const todayStatus: CompletionStatus = hasNormal ? 'normal' : hasBare ? 'bare_minimum' : 'none'
+        // Colour is based on points ratio: >50% of total possible = bright green (normal), ≤50% = dim green (bare_minimum)
+        const totalPossibleToday = state.tasks.filter(t => t.is_active).length * 20
+        const todayStatus: CompletionStatus =
+          newPointsToday === 0
+            ? 'none'
+            : totalPossibleToday > 0 && newPointsToday > totalPossibleToday * 0.5
+              ? 'normal'
+              : 'bare_minimum'
 
         const otherDaysHeatmap = state.heatmapData.filter(d => d.date !== todayStr)
         const newHeatmap = [

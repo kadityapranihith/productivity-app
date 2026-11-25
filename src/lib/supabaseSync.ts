@@ -452,10 +452,17 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
     })
 
     const heatmapData: DailySummary[] = Array.from(dateMap.entries()).map(([date, comps]) => {
+      const pts = comps.reduce((acc, c) => acc + (c.points_awarded || 0), 0)
+      // Colour is based on points ratio: >50% of total possible = bright (normal), ≤50% = dim (bare_minimum)
+      const totalPossible = tasks.length * 20
+      const status: CompletionStatus =
+        pts === 0
+          ? 'none'
+          : totalPossible > 0 && pts > totalPossible * 0.5
+            ? 'normal'
+            : 'bare_minimum'
       const normalCount = comps.filter(c => c.status === 'normal').length
       const bareCount = comps.filter(c => c.status === 'bare_minimum').length
-      const status: CompletionStatus = normalCount > 0 ? 'normal' : bareCount > 0 ? 'bare_minimum' : 'none'
-      const pts = comps.reduce((acc, c) => acc + (c.points_awarded || 0), 0)
 
       return {
         date,
