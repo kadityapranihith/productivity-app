@@ -190,7 +190,7 @@ export async function syncGoalToSupabase(goal: Goal): Promise<boolean> {
       period: goal.period || 'monthly',
       target_value: goal.target_value,
       current_value: goal.current_value || 0,
-      unit: goal.unit || 'units',
+      unit: goal.unit || '%',  // '%' = no-target sentinel
       deadline: goal.deadline || null,
       is_shared: goal.is_shared ?? false,
       is_completed: goal.is_completed ?? false,
@@ -400,7 +400,7 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
       period: (r.period || 'monthly') as GoalPeriod,
       target_value: Number(r.target_value),
       current_value: Number(r.current_value ?? 0),
-      unit: r.unit || 'units',
+      unit: r.unit || '%',  // '%' = no-target sentinel; never default to 'units'
       deadline: r.deadline || undefined,
       is_shared: r.is_shared ?? false,
       is_completed: r.is_completed ?? false,

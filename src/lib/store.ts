@@ -883,12 +883,15 @@ export const useAppStore = create<AppState>()(
             // Only re-evaluate is_completed when explicitly set or target_value changes.
             // For plain field edits (title, description, period, etc.) preserve the existing value.
             const newTarget = updates.target_value ?? g.target_value
+            const newUnit = updates.unit ?? g.unit
+            // Only auto-complete if goal has a real numeric target (not the '%' sentinel)
+            const hasRealTarget = newUnit !== '%' && newTarget > 0
             const isCompletedNext =
               updates.is_completed !== undefined
-                ? updates.is_completed          // explicit toggle
-                : updates.target_value !== undefined
-                  ? g.current_value >= newTarget // target changed → recalculate
-                  : g.is_completed              // no target change → keep as-is
+                ? updates.is_completed          // explicit toggle (checkmark button)
+                : hasRealTarget
+                  ? g.current_value >= newTarget // real target → recalculate
+                  : g.is_completed              // no-target goal → keep as-is
             updatedGoal = {
               ...g,
               ...updates,
