@@ -194,17 +194,18 @@ export async function syncGoalToSupabase(goal: Goal): Promise<boolean> {
       deadline: goal.deadline || null,
       is_shared: goal.is_shared ?? false,
       is_completed: goal.is_completed ?? false,
+      created_at: goal.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
 
     const { error } = await supabase.from('goals').upsert(payload, { onConflict: 'id' })
     if (error) {
-      console.warn('[Sync] syncGoalToSupabase error:', error.message)
+      console.error('[Sync] syncGoalToSupabase error:', error.code, error.message, error.details)
       return false
     }
     return true
   } catch (err) {
-    console.warn('[Sync] syncGoalToSupabase exception:', err)
+    console.error('[Sync] syncGoalToSupabase exception:', err)
     return false
   }
 }
