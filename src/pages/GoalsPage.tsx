@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
-import { Plus, Target, Calendar, Trash2, Minus } from 'lucide-react'
+import { Plus, Target, Calendar, Trash2, Minus, Edit3, CheckCircle2 } from 'lucide-react'
 import { Card, Button, Badge, ProgressBar, SectionHeader, Input, Select, Textarea, EmptyState } from '@/components/ui'
 import { useAppStore } from '@/lib/store'
 import { categoryColor, cn } from '@/lib/utils'
@@ -21,10 +21,12 @@ const CATEGORIES: { value: GoalCategory; label: string }[] = [
 export function GoalsPage() {
   const goals = useAppStore(state => state.goals)
   const addGoal = useAppStore(state => state.addGoal)
+  const updateGoal = useAppStore(state => state.updateGoal)
   const updateGoalProgress = useAppStore(state => state.updateGoalProgress)
   const deleteGoal = useAppStore(state => state.deleteGoal)
 
   const [showCreate, setShowCreate] = useState(false)
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null)
   const [filter, setFilter] = useState<GoalPeriod | 'all'>('all')
 
   const filtered = filter === 'all' ? goals : goals.filter(g => g.period === filter)
@@ -73,12 +75,32 @@ export function GoalsPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-6"
         >
-          <CreateGoalForm
+          <GoalForm
+            mode="create"
             onSave={(goal) => {
               addGoal(goal)
               setShowCreate(false)
             }}
             onCancel={() => setShowCreate(false)}
+          />
+        </motion.div>
+      )}
+
+      {/* Edit modal */}
+      {editingGoal && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
+          <GoalForm
+            mode="edit"
+            goal={editingGoal}
+            onSave={(updates) => {
+              updateGoal(editingGoal.id, updates)
+              setEditingGoal(null)
+            }}
+            onCancel={() => setEditingGoal(null)}
           />
         </motion.div>
       )}
@@ -91,6 +113,8 @@ export function GoalsPage() {
             goals={lifetime}
             onProgress={updateGoalProgress}
             onDelete={deleteGoal}
+            onEdit={setEditingGoal}
+            onToggleDone={(id, done) => updateGoal(id, { is_completed: done })}
           />
         )}
         {(filter === 'all' || filter === 'yearly') && yearly.length > 0 && (
@@ -99,6 +123,8 @@ export function GoalsPage() {
             goals={yearly}
             onProgress={updateGoalProgress}
             onDelete={deleteGoal}
+            onEdit={setEditingGoal}
+            onToggleDone={(id, done) => updateGoal(id, { is_completed: done })}
           />
         )}
         {(filter === 'all' || filter === 'monthly') && monthly.length > 0 && (
@@ -107,6 +133,8 @@ export function GoalsPage() {
             goals={monthly}
             onProgress={updateGoalProgress}
             onDelete={deleteGoal}
+            onEdit={setEditingGoal}
+            onToggleDone={(id, done) => updateGoal(id, { is_completed: done })}
           />
         )}
         {(filter === 'all' || filter === 'weekly') && weekly.length > 0 && (
@@ -115,6 +143,8 @@ export function GoalsPage() {
             goals={weekly}
             onProgress={updateGoalProgress}
             onDelete={deleteGoal}
+            onEdit={setEditingGoal}
+            onToggleDone={(id, done) => updateGoal(id, { is_completed: done })}
           />
         )}
         {filtered.length === 0 && (
@@ -134,12 +164,16 @@ function GoalGroup({
   title,
   goals,
   onProgress,
-  onDelete
+  onDelete,
+  onEdit,
+  onToggleDone,
 }: {
   title: string
   goals: Goal[]
   onProgress: (id: string, delta: number) => void
   onDelete: (id: string) => void
+  onEdit: (goal: Goal) => void
+  onToggleDone: (id: string, done: boolean) => void
 }) {
   return (
     <div>
@@ -151,6 +185,8 @@ function GoalGroup({
             goal={goal}
             onProgress={onProgress}
             onDelete={onDelete}
+            onEdit={onEdit}
+            onToggleDone={onToggleDone}
           />
         ))}
       </div>
@@ -161,76 +197,118 @@ function GoalGroup({
 function GoalCard({
   goal,
   onProgress,
-  onDelete
+  onDelete,
+  onEdit,
+  onToggleDone,
 }: {
   goal: Goal
   onProgress: (id: string, delta: number) => void
   onDelete: (id: string) => void
+  onEdit: (goal: Goal) => void
+  onToggleDone: (id: string, done: boolean) => void
 }) {
-  const isPercent = !goal.unit || goal.unit === '%'
-  const pct = Math.min(100, Math.round((goal.current_value / goal.target_value) * 100))
+  const hasTarget = goal.target_value > 0 && goal.unit && goal.unit !== '%'
+  const hasNumericTarget = goal.target_value > 0
+  const pct = hasNumericTarget ? Math.min(100, Math.round((goal.current_value / goal.target_value) * 100)) : 0
   const color = categoryColor(goal.category)
-  const isDone = goal.current_value >= goal.target_value
+  const isDone = goal.is_completed || (hasNumericTarget && goal.current_value >= goal.target_value)
 
   return (
-    <Card className="p-5 group hover:border-[#2E3530] transition-colors">
+    <Card className={cn(
+      'p-5 group hover:border-[#2E3530] transition-colors',
+      isDone && 'border-[rgba(74,222,128,0.2)] bg-[rgba(74,222,128,0.015)]'
+    )}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
             style={{ backgroundColor: `${color}18` }}
           >
-            <Target className="w-4 h-4" style={{ color }} />
+            {isDone
+              ? <CheckCircle2 className="w-4 h-4 text-[#4ADE80]" />
+              : <Target className="w-4 h-4" style={{ color }} />
+            }
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-[#F5F5F0] truncate">{goal.title}</h3>
+            <h3 className={cn(
+              'text-sm font-bold truncate',
+              isDone ? 'text-[#8B9A8E] line-through' : 'text-[#F5F5F0]'
+            )}>{goal.title}</h3>
             <div className="flex items-center gap-1.5 mt-0.5">
               <Badge variant="muted" className="capitalize text-[10px]">{goal.period}</Badge>
               <Badge variant="muted" className="capitalize text-[10px]">{goal.category}</Badge>
-              {goal.is_shared && <Badge variant="accent" className="text-[9px]">Shared</Badge>}
+              {isDone && <Badge variant="success" className="text-[9px]">Done ✓</Badge>}
+              {goal.is_shared && !isDone && <Badge variant="accent" className="text-[9px]">Shared</Badge>}
             </div>
           </div>
         </div>
-        <button
-          onClick={() => onDelete(goal.id)}
-          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[rgba(248,113,113,0.1)] rounded text-[#5A6B5D] hover:text-[#F87171] transition-all"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+
+        {/* Action buttons — visible on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+          <button
+            onClick={() => onToggleDone(goal.id, !isDone)}
+            title={isDone ? 'Mark as incomplete' : 'Mark as done'}
+            className="p-1 rounded text-[#5A6B5D] hover:text-[#4ADE80] transition-colors"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onEdit(goal)}
+            title="Edit goal"
+            className="p-1 rounded text-[#5A6B5D] hover:text-[#C5F36B] transition-colors"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete(goal.id)}
+            title="Delete goal"
+            className="p-1 hover:bg-[rgba(248,113,113,0.1)] rounded text-[#5A6B5D] hover:text-[#F87171] transition-all"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {goal.description && (
         <p className="text-xs text-[#8B9A8E] mb-3 line-clamp-2">{goal.description}</p>
       )}
 
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-1.5 text-xs">
-          <span className="text-[#5A6B5D]">Progress</span>
-          <span className="font-semibold text-[#F5F5F0]">
-            {isPercent
-              ? `${pct}%`
-              : `${goal.current_value} / ${goal.target_value} ${goal.unit} (${pct}%)`}
-          </span>
+      {/* Progress — only shown when target was set */}
+      {hasNumericTarget && !isDone && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5 text-xs">
+            <span className="text-[#5A6B5D]">Progress</span>
+            <span className="font-semibold text-[#F5F5F0]">
+              {hasTarget
+                ? `${goal.current_value} / ${goal.target_value} ${goal.unit} (${pct}%)`
+                : `${pct}%`}
+            </span>
+          </div>
+          <ProgressBar value={pct} variant="accent" />
         </div>
-        <ProgressBar value={pct} variant={isDone ? 'success' : 'accent'} />
-      </div>
+      )}
 
       <div className="flex items-center justify-between pt-2 border-t border-[#1A1D1B]">
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => onProgress(goal.id, -1)}
-            disabled={goal.current_value <= 0}
-            className="w-6 h-6 rounded-md bg-[#181B19] hover:bg-[#252A27] border border-[#262C28] text-[#8B9A8E] hover:text-[#F5F5F0] flex items-center justify-center text-xs disabled:opacity-30 transition-colors"
-          >
-            <Minus className="w-3 h-3" />
-          </button>
-          <button
-            onClick={() => onProgress(goal.id, 1)}
-            className="w-6 h-6 rounded-md bg-[#181B19] hover:bg-[#252A27] border border-[#262C28] text-[#8B9A8E] hover:text-[#C5F36B] flex items-center justify-center text-xs transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-          </button>
-        </div>
+        {/* +/- progress controls — hidden when no numeric target or done */}
+        {hasNumericTarget && !isDone ? (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => onProgress(goal.id, -1)}
+              disabled={goal.current_value <= 0}
+              className="w-6 h-6 rounded-md bg-[#181B19] hover:bg-[#252A27] border border-[#262C28] text-[#8B9A8E] hover:text-[#F5F5F0] flex items-center justify-center text-xs disabled:opacity-30 transition-colors"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => onProgress(goal.id, 1)}
+              className="w-6 h-6 rounded-md bg-[#181B19] hover:bg-[#252A27] border border-[#262C28] text-[#8B9A8E] hover:text-[#C5F36B] flex items-center justify-center text-xs transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+        ) : (
+          <span />
+        )}
 
         {goal.deadline && (
           <div className="flex items-center gap-1 text-[#5A6B5D] text-xs">
@@ -243,25 +321,62 @@ function GoalCard({
   )
 }
 
-function CreateGoalForm({
+type GoalFormData = Omit<Goal, 'id' | 'user_id' | 'current_value' | 'is_completed' | 'created_at' | 'updated_at'>
+
+function GoalForm({
+  mode,
+  goal,
   onSave,
-  onCancel
+  onCancel,
 }: {
-  onSave: (goal: Omit<Goal, 'id' | 'user_id' | 'current_value' | 'is_completed' | 'created_at' | 'updated_at'>) => void
+  mode: 'create' | 'edit'
+  goal?: Goal
+  onSave: (data: GoalFormData) => void
   onCancel: () => void
 }) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [category, setCategory] = useState<GoalCategory>('coding')
-  const [period, setPeriod] = useState<GoalPeriod>('monthly')
-  const [target, setTarget] = useState('')
-  const [unit, setUnit] = useState('')
-  const [deadline, setDeadline] = useState('')
-  const [isShared, setIsShared] = useState(false)
+  const [title, setTitle] = useState(goal?.title || '')
+  const [description, setDescription] = useState(goal?.description || '')
+  const [category, setCategory] = useState<GoalCategory>(goal?.category || 'coding')
+  const [period, setPeriod] = useState<GoalPeriod>(goal?.period || 'monthly')
+  const [target, setTarget] = useState(goal && goal.target_value > 0 && goal.unit !== '%' ? String(goal.target_value) : '')
+  const [unit, setUnit] = useState(goal?.unit !== '%' ? (goal?.unit || '') : '')
+  const [deadline, setDeadline] = useState(goal?.deadline || '')
+  const [isShared, setIsShared] = useState(goal?.is_shared || false)
+
+  useEffect(() => {
+    if (goal) {
+      setTitle(goal.title || '')
+      setDescription(goal.description || '')
+      setCategory(goal.category || 'coding')
+      setPeriod(goal.period || 'monthly')
+      setTarget(goal.target_value > 0 && goal.unit !== '%' ? String(goal.target_value) : '')
+      setUnit(goal.unit !== '%' ? (goal.unit || '') : '')
+      setDeadline(goal.deadline || '')
+      setIsShared(goal.is_shared || false)
+    }
+  }, [goal])
+
+  const handleSave = () => {
+    if (!title.trim()) return
+    const targetVal = target ? Number(target) : 0
+    const unitVal = unit.trim() || (targetVal > 0 ? 'units' : '%')
+    onSave({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      category,
+      period,
+      target_value: targetVal || 100,
+      unit: unitVal,
+      deadline: deadline || undefined,
+      is_shared: isShared,
+    })
+  }
 
   return (
     <Card className="p-5 bg-[#181B19] border-[#2E3530]">
-      <h3 className="text-sm font-bold text-[#F5F5F0] mb-3">New Goal</h3>
+      <h3 className="text-sm font-bold text-[#F5F5F0] mb-3">
+        {mode === 'edit' ? 'Edit Goal' : 'New Goal'}
+      </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input
           label="Title"
@@ -296,7 +411,7 @@ function CreateGoalForm({
           <Input
             label="Target (optional)"
             type="number"
-            placeholder="Leave blank = 100%"
+            placeholder="e.g. 24"
             value={target}
             onChange={e => setTarget(e.target.value)}
             className="flex-1"
@@ -307,6 +422,7 @@ function CreateGoalForm({
             value={unit}
             onChange={e => setUnit(e.target.value)}
             className="flex-1"
+            disabled={!target}
           />
         </div>
 
@@ -341,26 +457,8 @@ function CreateGoalForm({
       </div>
 
       <div className="flex gap-2 mt-4 pt-4 border-t border-[#262C28]">
-        <Button
-          onClick={() => {
-            if (!title.trim()) return
-            const targetVal = target ? Number(target) : 100
-            const unitVal = unit.trim() || '%'
-            onSave({
-              title: title.trim(),
-              description: description.trim() || undefined,
-              category,
-              period,
-              target_value: targetVal,
-              unit: unitVal,
-              deadline: deadline || undefined,
-              is_shared: isShared
-            })
-          }}
-          disabled={!title.trim()}
-          size="sm"
-        >
-          Create Goal
+        <Button onClick={handleSave} disabled={!title.trim()} size="sm">
+          {mode === 'edit' ? 'Save Changes' : 'Create Goal'}
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

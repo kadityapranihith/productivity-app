@@ -169,6 +169,7 @@ interface AppState {
 
   // Goal actions
   addGoal: (goal: Omit<Goal, 'id' | 'user_id' | 'current_value' | 'is_completed' | 'created_at' | 'updated_at'>) => void
+  updateGoal: (id: string, updates: Partial<Omit<Goal, 'id' | 'user_id' | 'current_value' | 'created_at'>>) => void
   updateGoalProgress: (id: string, delta: number) => void
   deleteGoal: (id: string) => void
 
@@ -872,6 +873,28 @@ export const useAppStore = create<AppState>()(
         }
         set(state => ({ goals: [newGoal, ...state.goals] }))
         syncGoalToSupabase(newGoal).catch(() => {})
+      },
+
+      updateGoal: (id, updates) => {
+        let updatedGoal: Goal | null = null
+        set(state => ({
+          goals: state.goals.map(g => {
+            if (g.id !== id) return g
+            updatedGoal = {
+              ...g,
+              ...updates,
+              // If target changes, re-evaluate is_completed
+              is_completed: updates.is_completed !== undefined
+                ? updates.is_completed
+                : g.current_value >= (updates.target_value ?? g.target_value),
+              updated_at: new Date().toISOString(),
+            }
+            return updatedGoal
+          }),
+        }))
+        if (updatedGoal) {
+          syncGoalToSupabase(updatedGoal).catch(() => {})
+        }
       },
 
       updateGoalProgress: (id, delta) => {
