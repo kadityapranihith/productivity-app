@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { generateUuid, fetchUserGroupsFromSupabase } from './supabaseGroups'
+import { computeUserActivitySummary } from './activityStats'
 import type {
   Task, TaskCompletion, AdditionalTask, Goal,
   JournalEntry, UserAchievement, Group, DailySummary,
@@ -365,14 +366,21 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
       completed_at: r.completed_at || new Date().toISOString(),
     }))
 
-    // 3. Fetch additional tasks for today / recent
+    // 3. Fetch additional tasks (all completed for points + today's list for UI)
     const todayStr = format(new Date(), 'yyyy-MM-dd')
-    const { data: addData } = await supabase
-      .from('additional_tasks')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('date', todayStr)
-      .order('created_at', { ascending: true })
+    const [{ data: addData }, { data: completedAddData }] = await Promise.all([
+      supabase
+        .from('additional_tasks')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', todayStr)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('additional_tasks')
+        .select('date, points, completed')
+        .eq('user_id', userId)
+        .eq('completed', true),
+    ])
 
     const additionalTasks: AdditionalTask[] = (addData || []).map(r => ({
       id: r.id,
@@ -444,66 +452,12 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
     // 7. Fetch all groups user belongs to (memberships + created) with accurate member counts
     const groups = await fetchUserGroupsFromSupabase(userId)
 
-    // 8. Reconstruct heatmapData from completions
-    const dateMap = new Map<string, TaskCompletion[]>()
-    completions.forEach(c => {
-      const existing = dateMap.get(c.date) || []
-      existing.push(c)
-      dateMap.set(c.date, existing)
-    })
-
-    const heatmapData: DailySummary[] = Array.from(dateMap.entries()).map(([date, comps]) => {
-      const pts = comps.reduce((acc, c) => acc + (c.points_awarded || 0), 0)
-      // Colour is based on points ratio: >50% of total possible = bright (normal), ≤50% = dim (bare_minimum)
-      const totalPossible = tasks.length * 20
-      const status: CompletionStatus =
-        pts === 0
-          ? 'none'
-          : totalPossible > 0 && pts > totalPossible * 0.5
-            ? 'normal'
-            : 'bare_minimum'
-      const normalCount = comps.filter(c => c.status === 'normal').length
-      const bareCount = comps.filter(c => c.status === 'bare_minimum').length
-
-      return {
-        date,
-        status,
-        normal_completed: normalCount,
-        bare_completed: bareCount,
-        total_tasks: Math.max(tasks.length, comps.length),
-        points_earned: pts,
-        qualifies_for_consistency: status !== 'none',
-      }
-    }).sort((a, b) => a.date.localeCompare(b.date))
-
-    // 9. Compute stats
-    const totalPoints = completions.reduce((acc, c) => acc + (c.points_awarded || 0), 0)
-    const todayComps = completions.filter(c => c.date === todayStr)
-    const pointsToday = todayComps.reduce((acc, c) => acc + (c.points_awarded || 0), 0)
-    const activeDays = heatmapData.filter(d => d.qualifies_for_consistency).length
-
-    // Compute streak
-    let streak = 0
-    if (heatmapData.length > 0) {
-      const sortedDesc = [...heatmapData].sort((a, b) => b.date.localeCompare(a.date))
-      for (const d of sortedDesc) {
-        if (d.qualifies_for_consistency) {
-          streak++
-        } else {
-          break
-        }
-      }
-    }
-
-    const stats: UserStats = {
-      current_streak: streak,
-      longest_streak: streak,
-      active_days_this_year: activeDays,
-      total_points: totalPoints,
-      points_today: pointsToday,
-      points_this_week: totalPoints,
-      points_this_month: totalPoints,
-    }
+    // 8 & 9. Reconstruct heatmapData and compute aggregate stats
+    const { heatmapData, stats } = computeUserActivitySummary(
+      tasks.length,
+      completions,
+      completedAddData || []
+    )
 
     return {
       tasks,

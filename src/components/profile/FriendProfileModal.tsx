@@ -5,8 +5,13 @@ import { X, Flame, Calendar, Trophy, ShieldCheck, Sparkles, Crown } from 'lucide
 import { Badge, Avatar, StatCard, SectionHeader } from '@/components/ui'
 import { ConsistencyHeatmap } from '@/components/heatmap/ConsistencyHeatmap'
 import { useAppStore } from '@/lib/store'
-import { fetchUserProfileFromSupabase } from '@/lib/supabaseGroups'
-import type { DailySummary, GoalCategory } from '@/types'
+import {
+  fetchUserProfileFromSupabase,
+  fetchMemberPublicActivityFromSupabase,
+  type MemberPublicActivity,
+} from '@/lib/supabaseGroups'
+import { getSystemAchievementsCatalog } from '@/lib/achievementsCatalog'
+import type { GoalCategory, UserAchievement } from '@/types'
 
 export function FriendProfileModal() {
   const viewingFriendId = useAppStore(state => state.viewingFriendId)
@@ -21,6 +26,8 @@ export function FriendProfileModal() {
   const currentAchievements = useAppStore(state => state.userAchievements)
 
   const [remoteUserObj, setRemoteUserObj] = useState<{ user: any; profile: any } | null>(null)
+  const [remoteActivity, setRemoteActivity] = useState<MemberPublicActivity | null>(null)
+  const [isLoadingRemote, setIsLoadingRemote] = useState(false)
 
   const activeGroup = groups.find(g => g.id === activeGroupId)
   const isSelf = viewingFriendId === currentUser.id
@@ -28,14 +35,45 @@ export function FriendProfileModal() {
   useEffect(() => {
     if (!viewingFriendId || viewingFriendId === currentUser.id) {
       setRemoteUserObj(null)
+      setRemoteActivity(null)
+      setIsLoadingRemote(false)
       return
     }
-    fetchUserProfileFromSupabase(viewingFriendId).then(data => {
-      if (data) setRemoteUserObj(data)
-    }).catch(() => {})
+
+    let cancelled = false
+    setRemoteUserObj(null)
+    setRemoteActivity(null)
+    setIsLoadingRemote(true)
+
+    Promise.all([
+      fetchUserProfileFromSupabase(viewingFriendId).catch(() => null),
+      fetchMemberPublicActivityFromSupabase(viewingFriendId).catch(() => null),
+    ]).then(([profileData, activityData]) => {
+      if (cancelled) return
+      if (profileData) setRemoteUserObj(profileData)
+      if (activityData) setRemoteActivity(activityData)
+      setIsLoadingRemote(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [viewingFriendId, currentUser.id])
 
   if (!viewingFriendId) return null
+
+  const catalog = getSystemAchievementsCatalog()
+  const enrichAchievements = (list: UserAchievement[]) =>
+    list.map(ua => ({
+      ...ua,
+      achievement: ua.achievement || catalog.find(a => a.id === ua.achievement_id),
+    }))
+
+  const lbEntry = leaderboard.find(e => e.user_id === viewingFriendId)
+  const computedStats = remoteActivity?.stats
+  const hasComputedStats = Boolean(
+    computedStats && (computedStats.total_points > 0 || computedStats.active_days_this_year > 0)
+  )
 
   let friendData: any = null
   if (isSelf) {
@@ -43,55 +81,58 @@ export function FriendProfileModal() {
       user: currentUser,
       profile: currentProfile,
       stats: currentStats,
-      achievements: currentAchievements,
+      achievements: enrichAchievements(currentAchievements),
       heatmap: currentHeatmap,
     }
   } else if (remoteUserObj) {
-    const lbEntry = leaderboard.find(e => e.user_id === viewingFriendId)
+    const prof = remoteUserObj.profile
     friendData = {
       user: remoteUserObj.user,
-      profile: remoteUserObj.profile,
-      stats: {
-        current_streak: lbEntry?.streak ?? remoteUserObj.profile?.streak ?? 0,
-        longest_streak: lbEntry?.streak ?? remoteUserObj.profile?.streak ?? 0,
-        active_days_this_year: lbEntry?.active_days ?? remoteUserObj.profile?.active_days ?? 0,
-        total_points: lbEntry?.points ?? remoteUserObj.profile?.points ?? 0,
-        points_today: 0,
-        points_this_week: 0,
-        points_this_month: 0,
-      },
-      achievements: [],
-      heatmap: [],
+      profile: prof,
+      stats: hasComputedStats
+        ? computedStats
+        : {
+            current_streak: lbEntry?.streak ?? prof?.streak ?? 0,
+            longest_streak: lbEntry?.streak ?? prof?.streak ?? 0,
+            active_days_this_year: lbEntry?.active_days ?? prof?.active_days ?? 0,
+            total_points: lbEntry?.points ?? prof?.points ?? 0,
+            points_today: 0,
+            points_this_week: 0,
+            points_this_month: 0,
+          },
+      achievements: remoteActivity?.achievements || [],
+      heatmap: remoteActivity?.heatmapData || [],
     }
   } else {
-    const lbEntry = leaderboard.find(e => e.user_id === viewingFriendId)
     const name = lbEntry?.display_name || 'Circle Member'
-        const interests: GoalCategory[] = ['coding', 'fitness', 'reading']
-        friendData = {
-          user: {
-            id: viewingFriendId,
-            display_name: name,
-            email: `${name.toLowerCase()}@circle.internal`,
-            avatar_url: lbEntry?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
-            interests,
-            created_at: new Date().toISOString(),
-          },
-          profile: {
-            id: 'prof-' + viewingFriendId,
-            user_id: viewingFriendId,
-            display_name: name,
-            bio: '',
-            interests,
-            show_heatmap: true,
-            show_badges: true,
-            show_streak: true,
-            show_points: true,
-            show_goals: true,
-            announce_achievements: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          stats: {
+    const interests: GoalCategory[] = ['coding', 'fitness', 'reading']
+    friendData = {
+      user: {
+        id: viewingFriendId,
+        display_name: name,
+        email: `${name.toLowerCase()}@circle.internal`,
+        avatar_url: lbEntry?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+        interests,
+        created_at: new Date().toISOString(),
+      },
+      profile: {
+        id: 'prof-' + viewingFriendId,
+        user_id: viewingFriendId,
+        display_name: name,
+        bio: '',
+        interests,
+        show_heatmap: true,
+        show_badges: true,
+        show_streak: true,
+        show_points: true,
+        show_goals: true,
+        announce_achievements: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      stats: hasComputedStats
+        ? computedStats
+        : {
             current_streak: lbEntry?.streak ?? 0,
             longest_streak: lbEntry?.streak ?? 0,
             active_days_this_year: lbEntry?.active_days ?? 0,
@@ -100,9 +141,9 @@ export function FriendProfileModal() {
             points_this_week: 0,
             points_this_month: 0,
           },
-          achievements: [], // CLEAN! ZERO FAKE BADGES!
-          heatmap: [],      // CLEAN! ZERO FAKE HEATMAP SQUARES!
-        }
+      achievements: remoteActivity?.achievements || [],
+      heatmap: remoteActivity?.heatmapData || [],
+    }
   }
 
   const isFriendAdmin = Boolean(
@@ -180,25 +221,25 @@ export function FriendProfileModal() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             <StatCard
               label="Current Streak"
-              value={`${stats.current_streak}d`}
+              value={!isSelf && isLoadingRemote ? '—' : profile.show_streak ? `${stats.current_streak}d` : 'Hidden'}
               accent
               icon={<Flame className="w-4 h-4 text-[#F59E0B]" />}
             />
             <StatCard
               label="Active Days"
-              value={stats.active_days_this_year}
+              value={!isSelf && isLoadingRemote ? '—' : stats.active_days_this_year}
               sub="this year"
               icon={<Calendar className="w-4 h-4 text-[#60A5FA]" />}
             />
             <StatCard
               label="Circle Points"
-              value={stats.total_points.toLocaleString()}
+              value={!isSelf && isLoadingRemote ? '—' : profile.show_points ? stats.total_points.toLocaleString() : 'Hidden'}
               sub="points"
               icon={<Sparkles className="w-4 h-4 text-[#C5F36B]" />}
             />
             <StatCard
               label="Longest Streak"
-              value={`${stats.longest_streak}d`}
+              value={!isSelf && isLoadingRemote ? '—' : profile.show_streak ? `${stats.longest_streak}d` : 'Hidden'}
               sub="best"
               icon={<Trophy className="w-4 h-4 text-[#F59E0B]" />}
             />
@@ -213,7 +254,11 @@ export function FriendProfileModal() {
                   subtitle={`${user.display_name}'s calendar activity`}
                 />
               </div>
-              {heatmap && heatmap.length > 0 ? (
+              {!isSelf && isLoadingRemote ? (
+                <div className="py-4 text-center">
+                  <p className="text-xs text-[#5A6B5D]">Loading activity...</p>
+                </div>
+              ) : heatmap && heatmap.length > 0 ? (
                 <ConsistencyHeatmap data={heatmap} compact />
               ) : (
                 <div className="py-4 text-center">
@@ -231,7 +276,11 @@ export function FriendProfileModal() {
                 subtitle="Milestones unlocked through showing up"
                 className="mb-3"
               />
-              {achievements && achievements.length > 0 ? (
+              {!isSelf && isLoadingRemote ? (
+                <div className="py-3 text-center">
+                  <p className="text-xs text-[#5A6B5D]">Loading badges...</p>
+                </div>
+              ) : achievements && achievements.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {achievements.map((ua: any) => (
                     <div

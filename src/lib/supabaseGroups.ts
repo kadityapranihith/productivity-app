@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
-import type { Group, Announcement, User, UserProfile, GroupLeaderboardEntry } from '@/types'
+import { computeUserActivitySummary, type ActivityCompletionRow, type ActivityAdditionalRow } from './activityStats'
+import { getSystemAchievementsCatalog } from './achievementsCatalog'
+import type { Group, Announcement, User, UserProfile, GroupLeaderboardEntry, DailySummary, UserStats, UserAchievement } from '@/types'
 
 /**
  * Deterministically convert an email address to a valid RFC4122 v4 UUID string.
@@ -388,34 +390,44 @@ export async function upsertUserProfileToSupabase(user: User, profile: UserProfi
     } catch {}
 
     // Upsert into user_profiles
-    try {
-      // Ensure id is a valid RFC4122 UUID so Postgres doesn't throw 22P02 syntax error
-      const validProfileId = (profile.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id))
-        ? profile.id
-        : user.id
+    const validProfileId = (profile.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id))
+      ? profile.id
+      : user.id
 
-      await supabase.from('user_profiles').upsert(
-        {
-          id: validProfileId,
-          user_id: user.id,
-          display_name: profile.display_name || user.display_name || user.email.split('@')[0],
-          avatar_url: profile.avatar_url || user.avatar_url || null,
-          bio: profile.bio || null,
-          interests: profile.interests || [],
-          show_heatmap: profile.show_heatmap ?? true,
-          show_badges: profile.show_badges ?? true,
-          show_streak: profile.show_streak ?? true,
-          show_points: profile.show_points ?? true,
-          show_goals: profile.show_goals ?? true,
-          announce_achievements: profile.announce_achievements ?? true,
-          points: stats?.total_points ?? 0,
-          streak: stats?.current_streak ?? 0,
-          active_days: stats?.active_days_this_year ?? 0,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      )
-    } catch {}
+    const baseProfilePayload = {
+      id: validProfileId,
+      user_id: user.id,
+      display_name: profile.display_name || user.display_name || user.email.split('@')[0],
+      avatar_url: profile.avatar_url || user.avatar_url || null,
+      bio: profile.bio || null,
+      interests: profile.interests || [],
+      show_heatmap: profile.show_heatmap ?? true,
+      show_badges: profile.show_badges ?? true,
+      show_streak: profile.show_streak ?? true,
+      show_points: profile.show_points ?? true,
+      show_goals: profile.show_goals ?? true,
+      announce_achievements: profile.announce_achievements ?? true,
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error: profErr } = await supabase.from('user_profiles').upsert(
+      {
+        ...baseProfilePayload,
+        points: stats?.total_points ?? 0,
+        streak: stats?.current_streak ?? 0,
+        active_days: stats?.active_days_this_year ?? 0,
+      },
+      { onConflict: 'user_id' }
+    )
+    if (profErr) {
+      console.warn('[Supabase] user_profiles upsert with stats error, retrying base profile:', profErr.message)
+      const { error: fallbackErr } = await supabase
+        .from('user_profiles')
+        .upsert(baseProfilePayload, { onConflict: 'user_id' })
+      if (fallbackErr) {
+        console.warn('[Supabase] user_profiles fallback upsert error:', fallbackErr.message)
+      }
+    }
 
     return true
   } catch (err) {
@@ -442,26 +454,52 @@ export async function fetchGroupMembersFromSupabase(groupId: string): Promise<Gr
 
     const userIds = members.map(m => m.user_id)
 
-    // Fetch user profiles for these members
-    const { data: profiles } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .in('user_id', userIds)
+    // Fetch user profiles, emails, and non-private activity counts in parallel
+    const [
+      { data: profiles },
+      { data: usersData },
+      { data: tasksData },
+      { data: compData },
+      { data: addData },
+    ] = await Promise.all([
+      supabase.from('user_profiles').select('*').in('user_id', userIds),
+      supabase.from('users').select('id, email').in('id', userIds),
+      supabase.from('tasks').select('user_id').in('user_id', userIds).eq('is_active', true),
+      supabase.from('task_completions').select('user_id, date, status, points_awarded').in('user_id', userIds),
+      supabase.from('additional_tasks').select('user_id, date, points, completed').in('user_id', userIds).eq('completed', true),
+    ])
 
     const profileMap = new Map<string, any>()
     if (Array.isArray(profiles)) {
       profiles.forEach(p => profileMap.set(p.user_id, p))
     }
 
-    // Fetch user emails for fallbacks
-    const { data: usersData } = await supabase
-      .from('users')
-      .select('id, email')
-      .in('id', userIds)
-
     const userEmailMap = new Map<string, string>()
     if (Array.isArray(usersData)) {
       usersData.forEach(u => userEmailMap.set(u.id, u.email))
+    }
+
+    const taskCountMap = new Map<string, number>()
+    if (Array.isArray(tasksData)) {
+      tasksData.forEach(t => taskCountMap.set(t.user_id, (taskCountMap.get(t.user_id) || 0) + 1))
+    }
+
+    const compMap = new Map<string, ActivityCompletionRow[]>()
+    if (Array.isArray(compData)) {
+      compData.forEach(c => {
+        const arr = compMap.get(c.user_id) || []
+        arr.push(c)
+        compMap.set(c.user_id, arr)
+      })
+    }
+
+    const addMap = new Map<string, ActivityAdditionalRow[]>()
+    if (Array.isArray(addData)) {
+      addData.forEach(a => {
+        const arr = addMap.get(a.user_id) || []
+        arr.push(a)
+        addMap.set(a.user_id, arr)
+      })
     }
 
     return members.map((m, idx) => {
@@ -470,14 +508,21 @@ export async function fetchGroupMembersFromSupabase(groupId: string): Promise<Gr
       const name = prof?.display_name || (email ? email.split('@')[0] : 'Circle Member')
       const avatar = prof?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`
 
+      const { stats: computed } = computeUserActivitySummary(
+        taskCountMap.get(m.user_id) || 0,
+        compMap.get(m.user_id) || [],
+        addMap.get(m.user_id) || []
+      )
+
+      const hasComputedActivity = computed.total_points > 0 || computed.active_days_this_year > 0
       return {
         user_id: m.user_id,
         display_name: name,
         avatar_url: avatar,
-        points: prof?.points ?? 0,
+        points: hasComputedActivity ? computed.total_points : (prof?.points ?? 0),
         rank: idx + 1,
-        streak: prof?.streak ?? 0,
-        active_days: prof?.active_days ?? 0,
+        streak: hasComputedActivity ? computed.current_streak : (prof?.streak ?? 0),
+        active_days: hasComputedActivity ? computed.active_days_this_year : (prof?.active_days ?? 0),
       }
     })
   } catch (err) {
@@ -539,6 +584,65 @@ export async function fetchUserProfileFromSupabase(userId: string): Promise<{ us
     return { user: userObj, profile: profileObj }
   } catch (err) {
     console.warn('[Supabase] fetchUserProfileFromSupabase exception:', err)
+    return null
+  }
+}
+
+export interface MemberPublicActivity {
+  heatmapData: DailySummary[]
+  stats: UserStats
+  achievements: UserAchievement[]
+}
+
+/**
+ * Fetch a circle member's non-private activity (heatmap dates, streak/points stats,
+ * and earned achievements) directly from Supabase without reading private titles or notes.
+ */
+export async function fetchMemberPublicActivityFromSupabase(userId: string): Promise<MemberPublicActivity | null> {
+  try {
+    if (!userId) return null
+
+    const [
+      { data: tasksData },
+      { data: compData },
+      { data: addData },
+      { data: achData },
+    ] = await Promise.all([
+      supabase.from('tasks').select('id').eq('user_id', userId).eq('is_active', true),
+      supabase.from('task_completions').select('date, status, points_awarded').eq('user_id', userId),
+      supabase.from('additional_tasks').select('date, points, completed').eq('user_id', userId).eq('completed', true),
+      supabase.from('user_achievements').select('*').eq('user_id', userId),
+    ])
+
+    const { heatmapData, stats } = computeUserActivitySummary(
+      (tasksData || []).length,
+      (compData || []) as ActivityCompletionRow[],
+      (addData || []) as ActivityAdditionalRow[]
+    )
+
+    const catalogByYear = new Map<number, ReturnType<typeof getSystemAchievementsCatalog>>()
+    const getCatalog = (year: number) => {
+      if (!catalogByYear.has(year)) catalogByYear.set(year, getSystemAchievementsCatalog(year))
+      return catalogByYear.get(year)!
+    }
+
+    const achievements: UserAchievement[] = (achData || []).map((r: any) => {
+      const year = r.year || new Date().getFullYear()
+      const matched = getCatalog(year).find(a => a.id === r.achievement_id)
+      return {
+        id: r.id,
+        user_id: r.user_id,
+        achievement_id: r.achievement_id,
+        achievement: matched,
+        earned_at: r.unlocked_at || r.earned_at || new Date().toISOString(),
+        year: r.year || undefined,
+        month: r.month || undefined,
+      }
+    })
+
+    return { heatmapData, stats, achievements }
+  } catch (err) {
+    console.warn('[Supabase] fetchMemberPublicActivityFromSupabase exception:', err)
     return null
   }
 }

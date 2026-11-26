@@ -750,6 +750,7 @@ export const useAppStore = create<AppState>()(
           active_days_this_year: activeDaysCount,
           all_time_active_days: allTimeDaysCount,
           current_streak: newStreak,
+          longest_streak: Math.max(state.stats.longest_streak, newStreak),
         }
 
         set({
@@ -841,17 +842,21 @@ export const useAppStore = create<AppState>()(
             : entry
         )
 
+        const newStats = {
+          ...state.stats,
+          total_points: newTotal,
+          points_today: newToday,
+        }
+
         set({
           additionalTasks: state.additionalTasks.map(t =>
             t.id === id ? updatedTask : t
           ),
           leaderboard: updatedLeaderboard,
-          stats: {
-            ...state.stats,
-            total_points: newTotal,
-            points_today: newToday,
-          },
+          stats: newStats,
         })
+
+        upsertUserProfileToSupabase(state.user, state.profile, newStats).catch(() => {})
       },
 
       deleteAdditionalTask: (id) => {
