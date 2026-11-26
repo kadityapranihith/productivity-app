@@ -909,10 +909,12 @@ export const useAppStore = create<AppState>()(
           goals: state.goals.map(g => {
             if (g.id !== id) return g
             const nextVal = Math.max(0, g.current_value + delta)
+            // Only auto-complete if goal has a real numeric target (not the '%' sentinel)
+            const hasRealTarget = g.unit !== '%' && g.target_value > 0
             updatedGoal = {
               ...g,
               current_value: nextVal,
-              is_completed: nextVal >= g.target_value,
+              is_completed: hasRealTarget ? nextVal >= g.target_value : g.is_completed,
               updated_at: new Date().toISOString(),
             }
             return updatedGoal

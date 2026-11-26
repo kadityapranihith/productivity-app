@@ -208,8 +208,9 @@ function GoalCard({
   onToggleDone: (id: string, done: boolean) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const hasTarget = goal.target_value > 0 && goal.unit && goal.unit !== '%'
-  const hasNumericTarget = goal.target_value > 0
+  // "real" target = user explicitly set a numeric target (unit is not the '%' sentinel)
+  const hasNumericTarget = goal.unit !== '%' && goal.target_value > 0
+  const hasTarget = hasNumericTarget && !!goal.unit  // has unit label too
   const pct = hasNumericTarget ? Math.min(100, Math.round((goal.current_value / goal.target_value) * 100)) : 0
   const color = categoryColor(goal.category)
   const isDone = goal.is_completed || (hasNumericTarget && goal.current_value >= goal.target_value)
