@@ -207,11 +207,13 @@ function GoalCard({
   onEdit: (goal: Goal) => void
   onToggleDone: (id: string, done: boolean) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const hasTarget = goal.target_value > 0 && goal.unit && goal.unit !== '%'
   const hasNumericTarget = goal.target_value > 0
   const pct = hasNumericTarget ? Math.min(100, Math.round((goal.current_value / goal.target_value) * 100)) : 0
   const color = categoryColor(goal.category)
   const isDone = goal.is_completed || (hasNumericTarget && goal.current_value >= goal.target_value)
+  const descTruncated = goal.description && goal.description.length > 80
 
   return (
     <Card className={cn(
@@ -270,7 +272,19 @@ function GoalCard({
       </div>
 
       {goal.description && (
-        <p className="text-xs text-[#8B9A8E] mb-3 line-clamp-2">{goal.description}</p>
+        <div className="mb-3">
+          <p className={cn('text-xs text-[#8B9A8E]', !expanded && descTruncated && 'line-clamp-2')}>
+            {goal.description}
+          </p>
+          {descTruncated && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="text-[10px] text-[#5A6B5D] hover:text-[#C5F36B] mt-0.5 transition-colors"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Progress — only shown when target was set */}

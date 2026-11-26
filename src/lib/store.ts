@@ -880,13 +880,19 @@ export const useAppStore = create<AppState>()(
         set(state => ({
           goals: state.goals.map(g => {
             if (g.id !== id) return g
+            // Only re-evaluate is_completed when explicitly set or target_value changes.
+            // For plain field edits (title, description, period, etc.) preserve the existing value.
+            const newTarget = updates.target_value ?? g.target_value
+            const isCompletedNext =
+              updates.is_completed !== undefined
+                ? updates.is_completed          // explicit toggle
+                : updates.target_value !== undefined
+                  ? g.current_value >= newTarget // target changed → recalculate
+                  : g.is_completed              // no target change → keep as-is
             updatedGoal = {
               ...g,
               ...updates,
-              // If target changes, re-evaluate is_completed
-              is_completed: updates.is_completed !== undefined
-                ? updates.is_completed
-                : g.current_value >= (updates.target_value ?? g.target_value),
+              is_completed: isCompletedNext,
               updated_at: new Date().toISOString(),
             }
             return updatedGoal
