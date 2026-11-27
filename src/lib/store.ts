@@ -325,7 +325,7 @@ export const useAppStore = create<AppState>()(
           ...account,
           isAuthenticated: true,
         })
-        upsertUserProfileToSupabase(account.user, account.profile).catch(() => {})
+        upsertUserProfileToSupabase(account.user, account.profile, account.stats).catch(() => {})
       },
 
       signup: async (email: string, pass: string, name: string) => {
@@ -362,7 +362,7 @@ export const useAppStore = create<AppState>()(
           ...account,
           isAuthenticated: true,
         })
-        upsertUserProfileToSupabase(account.user, account.profile).catch(() => {})
+        upsertUserProfileToSupabase(account.user, account.profile, account.stats).catch(() => {})
       },
 
       resetToFreshAccount: () => {
@@ -437,7 +437,7 @@ export const useAppStore = create<AppState>()(
           ...account,
           isAuthenticated: true,
         })
-        upsertUserProfileToSupabase(account.user, account.profile).catch(() => {})
+        upsertUserProfileToSupabase(account.user, account.profile, account.stats).catch(() => {})
       },
 
       resetPassword: async (email: string) => {
