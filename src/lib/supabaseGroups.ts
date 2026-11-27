@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { computeUserActivitySummary, type ActivityCompletionRow, type ActivityAdditionalRow } from './activityStats'
-import { getSystemAchievementsCatalog } from './achievementsCatalog'
+import { mapUserAchievementRows } from './supabaseAchievements'
 import type { Group, Announcement, User, UserProfile, GroupLeaderboardEntry, DailySummary, UserStats, UserAchievement } from '@/types'
 
 /**
@@ -620,25 +620,7 @@ export async function fetchMemberPublicActivityFromSupabase(userId: string): Pro
       (addData || []) as ActivityAdditionalRow[]
     )
 
-    const catalogByYear = new Map<number, ReturnType<typeof getSystemAchievementsCatalog>>()
-    const getCatalog = (year: number) => {
-      if (!catalogByYear.has(year)) catalogByYear.set(year, getSystemAchievementsCatalog(year))
-      return catalogByYear.get(year)!
-    }
-
-    const achievements: UserAchievement[] = (achData || []).map((r: any) => {
-      const year = r.year || new Date().getFullYear()
-      const matched = getCatalog(year).find(a => a.id === r.achievement_id)
-      return {
-        id: r.id,
-        user_id: r.user_id,
-        achievement_id: r.achievement_id,
-        achievement: matched,
-        earned_at: r.unlocked_at || r.earned_at || new Date().toISOString(),
-        year: r.year || undefined,
-        month: r.month || undefined,
-      }
-    })
+    const achievements: UserAchievement[] = await mapUserAchievementRows(achData || [])
 
     return { heatmapData, stats, achievements }
   } catch (err) {

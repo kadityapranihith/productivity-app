@@ -36,6 +36,9 @@ import {
   syncJournalEntryToSupabase,
   deleteJournalEntryFromSupabase,
   syncUserAchievementToSupabase,
+  syncNotificationToSupabase,
+  markNotificationReadInSupabase,
+  markAllNotificationsReadInSupabase,
   fetchUserCloudData
 } from './supabaseSync'
 
@@ -85,6 +88,7 @@ export interface AccountData {
   additionalTasks: AdditionalTask[]
   heatmapData: DailySummary[]
   userAchievements: UserAchievement[]
+  notifications: Notification[]
   goals: Goal[]
   journalEntries: JournalEntry[]
   groups: Group[]
@@ -255,6 +259,7 @@ async function resolveAccountWithCloud(
     additionalTasks: cloud?.additionalTasks || [],
     heatmapData: cloud?.heatmapData || [],
     userAchievements: cloud?.userAchievements || [],
+    notifications: cloud?.notifications || [],
     goals: cloud?.goals || [],
     journalEntries: cloud?.journalEntries || [],
     groups: cloudGroups,
@@ -476,7 +481,7 @@ export const useAppStore = create<AppState>()(
               ? { ...e, display_name: updatedUser.display_name, avatar_url: updatedUser.avatar_url }
               : e
           )
-          upsertUserProfileToSupabase(updatedUser, updatedProfile).catch(() => {})
+          upsertUserProfileToSupabase(updatedUser, updatedProfile, state.stats).catch(() => {})
           return {
             user: updatedUser,
             profile: updatedProfile,
@@ -486,13 +491,15 @@ export const useAppStore = create<AppState>()(
       },
 
       updateProfilePrivacy: (key, val) => {
-        set(state => ({
-          profile: {
+        set(state => {
+          const updatedProfile = {
             ...state.profile,
             [key]: val,
             updated_at: new Date().toISOString(),
           }
-        }))
+          upsertUserProfileToSupabase(state.user, updatedProfile, state.stats).catch(() => {})
+          return { profile: updatedProfile }
+        })
       },
 
       logout: () => {
@@ -667,7 +674,7 @@ export const useAppStore = create<AppState>()(
           })
 
           // Add to personal notifications
-          newNotifications.push({
+          const newNotif: Notification = {
             id: generateUuid(),
             user_id: userCanonicalId,
             type: 'achievement_unlocked',
@@ -675,7 +682,9 @@ export const useAppStore = create<AppState>()(
             body: `Congratulations! You unlocked the ${name} badge for verified showing up.`,
             read: false,
             created_at: new Date().toISOString(),
-          })
+          }
+          newNotifications.push(newNotif)
+          syncNotificationToSupabase(newNotif).catch(() => {})
         }
 
         // 1. All-time worked badges (365d, 500d, 1000d, 2000d)
@@ -977,12 +986,17 @@ export const useAppStore = create<AppState>()(
             n.id === id ? { ...n, read: true } : n
           ),
         }))
+        markNotificationReadInSupabase(id).catch(() => {})
       },
 
       markAllNotificationsRead: () => {
+        const userId = get().user.id
         set(state => ({
           notifications: state.notifications.map(n => ({ ...n, read: true })),
         }))
+        if (userId) {
+          markAllNotificationsReadInSupabase(userId).catch(() => {})
+        }
       },
 
       createGroup: (name, description, visibility) => {
@@ -1025,7 +1039,7 @@ export const useAppStore = create<AppState>()(
         syncGroupToSupabase(newGroup).catch(err => {
           console.warn('[Store] syncGroupToSupabase error:', err)
         })
-        upsertUserProfileToSupabase(user, get().profile).catch(() => {})
+        upsertUserProfileToSupabase(user, get().profile, stats).catch(() => {})
       },
 
       addAnnouncement: (content, type = 'general') => {

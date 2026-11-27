@@ -1,10 +1,12 @@
 import { supabase } from './supabase'
 import { generateUuid, fetchUserGroupsFromSupabase } from './supabaseGroups'
 import { computeUserActivitySummary } from './activityStats'
+import { resolveDbAchievementUuid, mapUserAchievementRows } from './supabaseAchievements'
 import type {
   Task, TaskCompletion, AdditionalTask, Goal,
   JournalEntry, UserAchievement, Group, DailySummary,
-  UserStats, CompletionStatus, GoalCategory, GoalPeriod
+  UserStats, CompletionStatus, GoalCategory, GoalPeriod,
+  Notification, NotificationType
 } from '@/types'
 import { format } from 'date-fns'
 
@@ -280,21 +282,104 @@ export async function syncUserAchievementToSupabase(ua: UserAchievement): Promis
     if (!ua.user_id) return false
     const validId = ensureUuid(ua.id)
 
-    const payload = {
+    const basePayload = {
       id: validId,
       user_id: ua.user_id,
       achievement_id: ua.achievement_id,
-      unlocked_at: ua.earned_at || new Date().toISOString(),
+      earned_at: ua.earned_at || new Date().toISOString(),
+      year: ua.year ?? null,
+      month: ua.month ?? null,
     }
 
-    const { error } = await supabase.from('user_achievements').upsert(payload, { onConflict: 'id' })
+    const { error } = await supabase.from('user_achievements').upsert(basePayload, { onConflict: 'id' })
+    if (!error) return true
+
+    // Fallback when live DB still enforces UUID/FK on user_achievements.achievement_id
+    if (error.code === '22P02' || error.code === '23503') {
+      const dbUuid = await resolveDbAchievementUuid(ua.achievement_id, ua.year, ua.month)
+      if (dbUuid) {
+        const { error: retryErr } = await supabase
+          .from('user_achievements')
+          .upsert({ ...basePayload, achievement_id: dbUuid }, { onConflict: 'id' })
+        if (!retryErr) return true
+        console.warn('[Sync] syncUserAchievementToSupabase retry error:', retryErr.message)
+        return false
+      }
+    }
+
+    console.warn('[Sync] syncUserAchievementToSupabase error:', error.message)
+    return false
+  } catch (err) {
+    console.warn('[Sync] syncUserAchievementToSupabase exception:', err)
+    return false
+  }
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+export async function syncNotificationToSupabase(notif: Notification): Promise<boolean> {
+  try {
+    if (!notif.user_id) return false
+    const validId = ensureUuid(notif.id)
+
+    const payload = {
+      id: validId,
+      user_id: notif.user_id,
+      type: notif.type,
+      title: notif.title,
+      body: notif.body,
+      read: notif.read ?? false,
+      data: notif.data ?? null,
+      created_at: notif.created_at || new Date().toISOString(),
+    }
+
+    const { error } = await supabase.from('notifications').upsert(payload, { onConflict: 'id' })
     if (error) {
-      console.warn('[Sync] syncUserAchievementToSupabase error:', error.message)
+      console.warn('[Sync] syncNotificationToSupabase error:', error.message)
       return false
     }
     return true
   } catch (err) {
-    console.warn('[Sync] syncUserAchievementToSupabase exception:', err)
+    console.warn('[Sync] syncNotificationToSupabase exception:', err)
+    return false
+  }
+}
+
+export async function markNotificationReadInSupabase(notificationId: string): Promise<boolean> {
+  try {
+    if (!notificationId) return false
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', notificationId)
+    if (error) {
+      console.warn('[Sync] markNotificationReadInSupabase error:', error.message)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.warn('[Sync] markNotificationReadInSupabase exception:', err)
+    return false
+  }
+}
+
+export async function markAllNotificationsReadInSupabase(userId: string): Promise<boolean> {
+  try {
+    if (!userId) return false
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', userId)
+      .eq('read', false)
+    if (error) {
+      console.warn('[Sync] markAllNotificationsReadInSupabase error:', error.message)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.warn('[Sync] markAllNotificationsReadInSupabase exception:', err)
     return false
   }
 }
@@ -311,6 +396,7 @@ export interface UserCloudData {
   goals: Goal[]
   journalEntries: JournalEntry[]
   userAchievements: UserAchievement[]
+  notifications: Notification[]
   groups: Group[]
   heatmapData: DailySummary[]
   stats: UserStats
@@ -434,19 +520,27 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
       updated_at: r.updated_at || new Date().toISOString(),
     }))
 
-    // 6. Fetch user achievements
-    const { data: achData } = await supabase
-      .from('user_achievements')
-      .select('*')
-      .eq('user_id', userId)
+    // 6. Fetch user achievements & notifications
+    const [{ data: achData }, { data: notifData }] = await Promise.all([
+      supabase.from('user_achievements').select('*').eq('user_id', userId),
+      supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50),
+    ])
 
-    const userAchievements: UserAchievement[] = (achData || []).map(r => ({
+    const userAchievements: UserAchievement[] = await mapUserAchievementRows(achData || [])
+    const notifications: Notification[] = (notifData || []).map(r => ({
       id: r.id,
       user_id: r.user_id,
-      achievement_id: r.achievement_id,
-      earned_at: r.unlocked_at || r.earned_at || new Date().toISOString(),
-      year: r.year || undefined,
-      month: r.month || undefined,
+      type: r.type as NotificationType,
+      title: r.title,
+      body: r.body,
+      read: r.read ?? false,
+      data: r.data || undefined,
+      created_at: r.created_at || new Date().toISOString(),
     }))
 
     // 7. Fetch all groups user belongs to (memberships + created) with accurate member counts
@@ -466,6 +560,7 @@ export async function fetchUserCloudData(userId: string): Promise<UserCloudData 
       goals,
       journalEntries,
       userAchievements,
+      notifications,
       groups,
       heatmapData,
       stats,
